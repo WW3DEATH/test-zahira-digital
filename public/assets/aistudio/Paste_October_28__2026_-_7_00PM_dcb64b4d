@@ -1,0 +1,1401 @@
+# PROJECT: SCHOOL LMS WITH GEMINI AI
+
+## 1. YOUR ROLE
+
+Act as a senior full-stack software engineer, UI/UX designer, database architect, security engineer, and Google Gemini AI integration specialist.
+
+Build a complete, functional, modern, responsive School Learning Management System (LMS) for a school.
+
+The application must support four user roles:
+
+1. Administrator
+2. Teacher
+3. Student
+4. Parent
+
+The application must include academic management, assignments, quizzes, examinations, report cards, attendance, announcements, user profiles, private messaging, group discussions, student–teacher communication, and AI-powered educational assistance.
+
+IMPORTANT:
+- Build a real application, not just a UI prototype.
+- Implement working navigation, forms, authentication, database operations, and user permissions.
+- Persist data using a real database.
+- Integrate Google Gemini AI using a secure server-side implementation.
+- Do not use fake data as a replacement for required backend functionality.
+- Do not leave buttons that do nothing.
+- Do not implement the entire system as one giant frontend component.
+- Organize the project into maintainable components, pages, services, and backend functions.
+- If a service requires configuration, implement the integration and clearly identify the required setup instead of pretending it works.
+- Build the application in manageable stages while maintaining one consistent project.
+
+## 2. TECHNOLOGY STACK
+
+Use a modern web application architecture.
+
+### Frontend
+- React
+- TypeScript
+- Vite, or the framework supported by the current Google AI Studio app-building environment
+- Tailwind CSS
+- Lucide icons
+- Reusable UI components
+- Responsive layouts
+- Accessible forms and navigation
+
+### Backend
+Use a secure server-side runtime supported by the generated project.
+
+Implement:
+- Authenticated API endpoints
+- Server-side validation
+- Role-based authorization
+- Secure database access
+- File upload authorization
+- Gemini AI integration
+- Error handling
+- Request validation
+- Rate limiting for sensitive endpoints
+
+### Database and authentication
+
+Use Firebase services where appropriate:
+
+- Firebase Authentication for email/password sign-in and account management.
+- Cloud Firestore for application data.
+- Firebase Storage for uploaded materials, assignments, and permitted attachments.
+- Firebase Security Rules for database and storage access.
+- Firebase App Check where appropriate.
+
+Use a suitable Firebase integration supported by the generated project.
+
+Do not assume Firebase has already been configured. Check the available project environment and explain which Firebase settings, configuration values, and security rules must be supplied.
+
+If the current environment supports a different managed database or authentication provider more reliably, explain the alternative before making a major architectural change.
+
+### Artificial intelligence
+
+Use Google Gemini AI through the official Gemini API.
+
+- Use a currently supported Gemini model suitable for the requested tasks.
+- Keep the model configurable in a central server-side configuration.
+- Never expose Gemini API keys in frontend JavaScript, source code, browser requests, or public environment variables.
+- Use server-side functions or a secure backend for all Gemini requests.
+- Do not assume a model name is permanently available. Verify the configured model's availability and supported capabilities.
+- Use structured output for tasks such as quiz generation when supported.
+
+## 3. DESIGN SYSTEM
+
+Create a premium educational platform with a calm, modern, professional academic appearance.
+
+### Visual identity
+
+Use:
+- Warm off-white paper-inspired background.
+- Deep ink-blue primary color.
+- Muted amber accent color.
+- White and light neutral cards.
+- Dark readable text.
+- Elegant serif headings, preferably Fraunces or a similar available font.
+- Clean sans-serif body typography.
+- Subtle borders and shadows.
+- Consistent spacing.
+- Rounded cards and form controls.
+- Simple, recognizable icons.
+
+Avoid:
+- Excessive gradients.
+- Unnecessary animations.
+- Overly bright colors.
+- Crowded layouts.
+- Excessive glassmorphism.
+- Oversized headings that waste screen space.
+
+### Layout
+
+Create:
+- A responsive left sidebar on desktop.
+- A collapsible sidebar on smaller screens.
+- A top navigation bar.
+- Global search where appropriate.
+- Notification center.
+- User profile dropdown.
+- Breadcrumb navigation on relevant pages.
+- Responsive tables and cards.
+- Loading skeletons.
+- Empty states.
+- Error states.
+- Confirmation dialogs for destructive actions.
+- Toast notifications for successful and failed operations.
+
+Provide both light and dark themes if feasible.
+
+Persist the user's theme preference.
+
+### Dashboard design
+
+Each role must have a different dashboard showing information relevant to that role.
+
+Do not display the same dashboard to every user.
+
+## 4. AUTHENTICATION AND ACCOUNT MANAGEMENT
+
+Implement a complete authentication experience.
+
+Pages:
+- Sign in.
+- Create account.
+- Forgot password.
+- Password reset flow.
+- Email verification where supported.
+- Sign out.
+- Unauthorized access page.
+- Account settings.
+
+Use Firebase Authentication for account identity.
+
+### Account registration
+
+Support email and password authentication.
+
+During registration, collect appropriate information such as:
+- Full name.
+- Email address.
+- Password.
+- Optional username.
+
+Do not allow public registration to assign administrator or teacher privileges.
+
+New public registrations must receive the student role by default.
+
+The initial administrator must be established through a secure, explicitly configured bootstrap procedure.
+
+Do not make the first account to register an administrator automatically in an unrestricted public production deployment.
+
+Provide a secure administrative setup process using a trusted backend or authorized operator.
+
+Only administrators with appropriate permissions may assign roles.
+
+### Authentication requirements
+
+- Validate form inputs.
+- Display understandable error messages.
+- Protect authenticated routes.
+- Prevent unauthorized role escalation.
+- Verify identity on the server for protected operations.
+- Handle expired sessions.
+- Never trust a role supplied by the frontend.
+- Use secure password reset flows provided by Firebase Authentication.
+- Never store plaintext passwords in the application database.
+
+## 5. USER ROLES AND PERMISSIONS
+
+### Administrator
+
+Administrators can:
+- View school-wide dashboards.
+- Create and manage classes.
+- Create and manage subjects.
+- Manage user accounts.
+- Assign and update authorized user roles.
+- Enroll students in classes.
+- Assign teachers to classes and subjects.
+- Link parents to students.
+- Manage announcements.
+- View school-wide academic insights.
+- Manage discussion groups and moderation.
+- Review reports.
+- Configure appropriate school settings.
+
+Administrators must not be able to bypass authentication or security checks simply because the frontend displays an administrator interface.
+
+### Teacher
+
+Teachers can:
+- View assigned classes.
+- View authorized student rosters.
+- Upload learning materials.
+- Create assignments.
+- Review student submissions.
+- Generate AI feedback suggestions.
+- Enter test marks.
+- Create and manage quizzes.
+- Record attendance.
+- Post announcements to assigned classes.
+- Communicate with students and parents when authorized.
+- Participate in class discussions.
+- Create study groups.
+- View class performance insights.
+- Use the Gemini AI teaching assistant.
+
+Teachers must not modify official records belonging to unrelated classes without explicit authorization.
+
+### Student
+
+Students can:
+- View their enrolled classes.
+- Access permitted learning materials.
+- Download authorized files.
+- Submit assignments.
+- Take available quizzes.
+- View their own marks.
+- View their own report cards.
+- View their attendance.
+- Read relevant announcements.
+- Send authorized private messages.
+- Participate in permitted discussions.
+- Join authorized study groups.
+- Use the Gemini AI study tutor.
+- View and edit permitted profile information.
+
+Students must never modify official grades, attendance records, account roles, or other students' private records.
+
+### Parent
+
+Parents can:
+- View their linked children's academic progress.
+- View their children's marks and report cards.
+- View attendance records.
+- View assignments and deadlines.
+- Read relevant announcements.
+- Communicate with authorized teachers.
+- View permitted academic summaries.
+
+Parents must not access unrelated students' academic records.
+
+## 6. USER PROFILES
+
+Create a profile for every administrator, teacher, student, and parent.
+
+### Profile fields
+
+Include:
+- Profile picture.
+- Full name.
+- Username.
+- Role badge.
+- Bio.
+- Account creation date.
+- Last active information where appropriate.
+- Online status where supported.
+- Relevant class or subject information based on role.
+
+Additional teacher information:
+- Teaching subjects.
+- Assigned classes.
+
+Additional student information:
+- Enrolled classes.
+- Relevant academic information visible only to authorized users.
+
+Additional parent information:
+- Linked children, visible only according to authorization rules.
+
+### Profile functionality
+
+- View profile.
+- Edit profile.
+- Upload and change profile picture.
+- Change permitted personal information.
+- Update account settings.
+- Change password through the authentication provider.
+- Sign out.
+
+Only authorized administrators can modify roles.
+
+Do not expose email addresses, student identifiers, parent contact details, or sensitive information to unauthorized users.
+
+Use the same profile identity throughout messages, discussions, announcements, and assignment submissions.
+
+## 7. CLASSES AND SUBJECTS
+
+Create class and subject management.
+
+### Classes
+
+Each class should include:
+- Class ID.
+- Class name.
+- Academic year.
+- Grade or level.
+- Description.
+- Assigned teachers.
+- Enrolled students.
+- Creation date.
+
+### Subjects
+
+Each subject should include:
+- Subject ID.
+- Subject name.
+- Subject code.
+- Description.
+- Associated classes.
+- Assigned teachers.
+
+### Class detail page
+
+Display:
+- Class overview.
+- Teacher information.
+- Student roster.
+- Subjects.
+- Learning materials.
+- Assignments.
+- Quizzes.
+- Announcements.
+- Attendance summary.
+- Class discussions.
+
+Only authorized class members may access restricted class content.
+
+## 8. LEARNING MATERIALS
+
+Teachers can upload learning materials for their assigned classes.
+
+Supported material types should include, where technically feasible:
+- PDF documents.
+- Images.
+- Text documents.
+- Presentations.
+- Other approved educational files.
+
+Material records should include:
+- Title.
+- Description.
+- Subject.
+- Class.
+- Teacher.
+- Upload timestamp.
+- Storage reference.
+- File type.
+- File size.
+
+Students can view and download materials for their enrolled classes.
+
+Use private storage for restricted materials.
+
+Do not expose unrestricted public download links for private school files.
+
+Validate uploaded file types and sizes, enforce storage permissions, and verify access before allowing downloads.
+
+## 9. ASSIGNMENTS AND SUBMISSIONS
+
+### Teacher functionality
+
+Teachers can:
+- Create assignments.
+- Edit assignments.
+- Set descriptions and instructions.
+- Assign a class and subject.
+- Set a due date.
+- Set maximum marks.
+- Attach reference materials.
+- Specify accepted file types.
+- View submissions.
+- Review submissions.
+- Grade submissions.
+- Provide written feedback.
+
+### Student functionality
+
+Students can:
+- View available assignments.
+- View instructions and deadlines.
+- Upload assignment files.
+- Submit text answers where enabled.
+- View submission status.
+- View teacher feedback after release.
+- Resubmit when permitted.
+
+### Submission status
+
+Support:
+- Draft.
+- Submitted.
+- Late.
+- Under review.
+- Graded.
+- Returned for revision.
+
+Record submission timestamps and maintain appropriate submission history.
+
+### Gemini AI grading assistant
+
+Allow teachers to request AI-generated feedback suggestions.
+
+The AI should:
+- Read the assignment instructions.
+- Consider a teacher-provided grading rubric.
+- Analyze the authorized submission.
+- Identify strengths.
+- Identify weaknesses.
+- Suggest improvements.
+- Recommend a tentative score where appropriate.
+- Explain the reasoning behind its suggestion.
+
+The AI must not automatically finalize official marks.
+
+Teachers must review and approve the final grade and feedback.
+
+Do not invent content from unreadable or inaccessible uploaded files.
+
+## 10. TESTS, MARKS, AND REPORT CARDS
+
+Create assessment management.
+
+Teachers can:
+- Create tests.
+- Specify class and subject.
+- Set the examination date.
+- Define maximum marks.
+- Enter student marks.
+- Update marks when authorized.
+- Record assessment feedback.
+
+Store each mark with:
+- Student ID.
+- Test ID.
+- Subject.
+- Marks obtained.
+- Maximum marks.
+- Teacher ID.
+- Timestamp.
+
+Validate that marks fall within permitted limits.
+
+### Report cards
+
+Generate report cards for each student and academic term.
+
+Include:
+- School name and logo, if configured.
+- Student name.
+- Class.
+- Academic term.
+- Subject names.
+- Assessment results.
+- Total marks where applicable.
+- Percentages where meaningful.
+- Teacher comments.
+- Attendance summary.
+- Date generated.
+
+Provide a print-friendly report card layout.
+
+Support PDF export using a suitable server-side or client-side PDF library.
+
+Parents can only access report cards for their linked children.
+
+Students can only access their own report cards.
+
+## 11. ATTENDANCE
+
+Create daily attendance management.
+
+Teachers can:
+- Select a class.
+- Select a date.
+- View the student roster.
+- Mark attendance.
+- Save attendance.
+- Correct records when authorized.
+- View attendance history.
+
+Attendance statuses:
+- Present.
+- Absent.
+- Late.
+- Excused.
+
+Prevent accidental duplicate records for the same student, class, and date.
+
+Display:
+- Daily attendance summaries.
+- Student attendance history.
+- Attendance percentages.
+- Class-level summaries.
+
+Parents and students can view only authorized attendance records.
+
+## 12. ANNOUNCEMENTS
+
+Create an announcement system.
+
+Teachers can post announcements for assigned classes.
+
+Administrators can post school-wide announcements.
+
+Each announcement includes:
+- Title.
+- Message.
+- Author.
+- Audience.
+- Optional class.
+- Creation timestamp.
+- Optional expiry date.
+- Optional attachment.
+
+Display announcements on relevant dashboards.
+
+Support:
+- Read/unread status where appropriate.
+- Announcement notifications.
+- Pinned announcements.
+- Search and filtering.
+
+Users must only receive announcements intended for their authorized audience.
+
+## 13. QUIZZES
+
+Build an interactive quiz system.
+
+### Teacher functionality
+
+Teachers can:
+- Create quizzes manually.
+- Generate quizzes using Gemini AI.
+- Edit generated questions.
+- Preview quizzes.
+- Configure time limits.
+- Set question order.
+- Define correct answers.
+- Set marks per question.
+- Publish or unpublish quizzes.
+- View student attempts and results.
+
+### Supported question types
+
+- Multiple choice.
+- True or false.
+- Short answer.
+- Other question types if fully supported.
+
+### Gemini AI quiz generation
+
+Inputs:
+- Topic.
+- Subject.
+- Class level.
+- Difficulty.
+- Number of questions.
+- Question types.
+- Optional source material.
+
+Generate structured question data containing:
+- Question text.
+- Question type.
+- Answer options where appropriate.
+- Correct answer.
+- Explanation.
+- Marks.
+- Difficulty.
+
+Validate the output before saving.
+
+Teachers must review generated quizzes before publication.
+
+Never reveal answer keys to students before the quiz's permitted release time.
+
+### Student quiz experience
+
+Students can:
+- Open available quizzes.
+- Answer questions.
+- Navigate between questions.
+- Submit their attempts.
+- View results when released.
+
+Automatically score objective questions.
+
+Require appropriate review for subjective questions.
+
+Prevent unauthorized changes to submitted attempts and protect against duplicate submissions according to quiz settings.
+
+## 14. PRIVATE CHAT
+
+Create a private one-to-one messaging system.
+
+### Features
+
+- Conversation list.
+- User search restricted by authorization.
+- Profile pictures and names.
+- Message timestamps.
+- Unread message indicators.
+- Read receipts where appropriate.
+- Real-time message updates where supported.
+- Typing indicators where supported.
+- Replies to specific messages.
+- Attachment support when configured.
+- Conversation search where feasible.
+- Notifications for new messages.
+
+### Authorized interactions
+
+Students can message authorized teachers.
+
+Teachers can message students in their assigned classes.
+
+Parents can contact authorized teachers.
+
+Administrators can communicate with users according to their permissions.
+
+Implement the school's communication rules through server-side authorization.
+
+### Privacy
+
+- Only conversation participants can read private messages.
+- Users cannot add themselves to unauthorized conversations.
+- Students cannot read another student's conversations.
+- Message attachments must use private storage.
+- Deletion must follow documented permissions and retention rules.
+- Provide reporting and moderation mechanisms.
+
+Do not expose private conversations through class discussion APIs, dashboards, AI summaries, or public database queries.
+
+## 15. GROUP DISCUSSIONS
+
+Build collaborative discussion spaces.
+
+### Group types
+
+- Class discussions.
+- Subject discussions.
+- Assignment discussions.
+- Exam preparation groups.
+- Teacher-led study groups.
+- School-wide discussion spaces.
+- Optional parent discussion groups.
+
+### Features
+
+- Create groups according to permissions.
+- Join authorized groups.
+- Post discussions.
+- Reply to posts.
+- Support threaded comments.
+- React to posts.
+- Pin important posts.
+- Search posts.
+- Upload permitted attachments.
+- Receive notifications.
+- Report inappropriate content.
+- Moderate discussions.
+- Lock discussions when necessary.
+
+Teachers can manage groups associated with their assigned classes.
+
+Administrators can manage school-wide discussion spaces.
+
+Students can only access authorized groups.
+
+Parents can only access parent discussion groups explicitly made available to them.
+
+## 16. STUDENT–TEACHER INTERACTION
+
+Make communication part of the learning experience.
+
+Students should be able to:
+- Ask questions about lessons.
+- Request clarification about assignments.
+- Participate in class Q&A discussions.
+- Reply to teacher posts when permitted.
+- Receive teacher feedback.
+- Join study groups.
+- Receive assignment reminders.
+
+Teachers should be able to:
+- Answer questions.
+- Create Q&A topics.
+- Pin frequently asked questions.
+- Share additional learning materials.
+- Clarify assignment instructions.
+- Provide feedback.
+- Create revision discussions.
+- Identify unanswered questions.
+
+Create an interaction dashboard showing:
+- Recent conversations.
+- Unanswered questions.
+- Recent discussions.
+- Upcoming assignment deadlines.
+- Important announcements.
+- Recently shared materials.
+
+## 17. GEMINI AI STUDY TUTOR
+
+Create a dedicated AI tutor for students.
+
+Use Google Gemini through a secure backend.
+
+### Tutor capabilities
+
+- Explain difficult concepts in simple language.
+- Support different subjects.
+- Provide examples.
+- Generate practice questions.
+- Create revision notes.
+- Summarize learning materials.
+- Help students understand mistakes.
+- Answer follow-up questions.
+- Adjust explanations to the selected class level.
+- Explain solutions step by step.
+
+Allow students to select:
+- Subject.
+- Class level.
+- Topic.
+- Explanation style.
+
+### Saved conversations
+
+- Persist tutor messages in the database.
+- Display conversation history.
+- Resume a previous conversation.
+- Support a primary ongoing conversation and additional conversations where useful.
+- Display loading and streaming states where supported.
+
+### Educational safety
+
+The tutor should encourage learning and understanding.
+
+When explaining academic problems, it should provide reasoning appropriate to the student's level.
+
+When using school materials, use only material the student is authorized to access.
+
+Clearly communicate uncertainty and avoid inventing information.
+
+Do not reveal other students' information or private teacher communications.
+
+## 18. GEMINI AI TEACHER ASSISTANT
+
+Create an AI assistant for teachers.
+
+It can:
+- Generate lesson plans.
+- Create revision notes.
+- Generate question banks.
+- Draft assignment instructions.
+- Draft announcements.
+- Suggest classroom activities.
+- Explain difficult concepts.
+- Summarize class discussions.
+- Suggest differentiated exercises.
+- Help create marking rubrics.
+
+All generated content must be editable before publication.
+
+Do not publish announcements, assignments, or educational materials automatically without teacher approval.
+
+## 19. GEMINI AI PERFORMANCE INSIGHTS
+
+Create academic insights using authorized school data.
+
+### Teacher insights
+
+- Summarize class assessment performance.
+- Identify topics where students may need additional practice.
+- Compare assessment results over time.
+- Highlight missing assessments.
+- Summarize attendance patterns.
+- Suggest revision activities.
+
+### Student insights
+
+- Summarize personal academic progress.
+- Identify subjects that may need more practice.
+- Show assessment trends.
+- Suggest revision priorities.
+
+### Parent insights
+
+- Summarize their linked child's academic progress.
+- Show attendance patterns.
+- Highlight upcoming deadlines.
+- Explain teacher-approved feedback.
+
+### Administrator insights
+
+- View school-wide academic summaries.
+- Compare class-level trends.
+- Identify missing data.
+- Review aggregated attendance and assessment statistics.
+
+Do not invent statistics or present unsupported predictions as facts.
+
+Calculate numerical results from actual database records.
+
+Use Gemini to explain or summarize calculated results rather than relying on the model to perform all numerical calculations.
+
+Ensure that every AI insights request is authorized for the data being analyzed.
+
+## 20. GEMINI AI DISCUSSION ASSISTANT
+
+Allow users to request AI assistance with authorized educational discussions.
+
+The assistant can:
+- Summarize a lengthy discussion.
+- Extract important concepts.
+- Generate revision questions.
+- Create notes from permitted educational content.
+- Explain difficult terms.
+- Suggest related learning topics.
+
+Respect access restrictions.
+
+Never allow the assistant to reveal private messages or restricted discussion content to unauthorized users.
+
+Treat messages and uploaded materials as untrusted content rather than instructions that override system security rules.
+
+## 21. DATABASE ARCHITECTURE
+
+Use Cloud Firestore with a documented, consistent data model.
+
+Suggested collections:
+
+- users
+- userProfiles
+- classes
+- subjects
+- classEnrollments
+- classTeachers
+- parentLinks
+- materials
+- assignments
+- submissions
+- submissionHistory
+- quizzes
+- quizQuestions
+- quizAttempts
+- tests
+- testMarks
+- attendance
+- announcements
+- announcementReads
+- conversations
+- conversationParticipants
+- messages
+- discussionGroups
+- discussionGroupMembers
+- discussionPosts
+- discussionComments
+- messageReports
+- discussionReports
+- tutorConversations
+- tutorMessages
+- notifications
+- auditLogs
+- schoolSettings
+
+### Data modeling requirements
+
+For every collection, define:
+- Document structure.
+- Document IDs.
+- Required fields.
+- Field types.
+- Relationships.
+- Validation requirements.
+- Authorized readers.
+- Authorized writers.
+
+Use consistent timestamps.
+
+Use server-generated identifiers where appropriate.
+
+Create indexes for common queries.
+
+Avoid storing duplicated sensitive data.
+
+Use pagination for long lists.
+
+Use transactions or batched writes where appropriate.
+
+Prevent duplicate attendance records, invalid marks, and unauthorized duplicate enrollments.
+
+Store references to private files rather than embedding large file contents in documents.
+
+Never rely on frontend filtering as the primary security mechanism.
+
+## 22. DATABASE AND STORAGE SECURITY
+
+Implement Firebase Security Rules for every protected collection and storage path.
+
+Apply least-privilege access.
+
+Enforce authorization using authenticated identity and trusted role information.
+
+A role stored in a user-editable profile field must never be sufficient to grant administrative privileges.
+
+Use trusted server-side authorization or appropriately protected role claims.
+
+### Example permission requirements
+
+- Students read their own marks.
+- Parents read marks for their linked children.
+- Teachers manage marks for authorized classes.
+- Students read their own attendance.
+- Parents read attendance for linked children.
+- Teachers manage attendance for assigned classes.
+- Students read authorized class materials.
+- Teachers manage materials for assigned classes.
+- Conversation participants read their conversations.
+- Group members read their authorized discussion content.
+- Administrators manage users and roles through authorized administrative operations.
+
+Ensure that nested Firestore documents and subcollections receive appropriate protection.
+
+Storage rules must enforce access to materials, submissions, profile pictures, and attachments.
+
+Do not assume that a protected frontend route makes the underlying database secure.
+
+Implement and test security rules before treating the application as production-ready.
+
+## 23. API AND BACKEND REQUIREMENTS
+
+Implement secure server-side endpoints for:
+
+- User administration.
+- Role assignment.
+- Class management.
+- Enrollment management.
+- Assignment management.
+- Submission processing.
+- AI grading suggestions.
+- Quiz generation.
+- Quiz submission and scoring.
+- Report card generation.
+- Attendance updates.
+- Announcement management.
+- Private messaging operations where server enforcement is required.
+- Discussion moderation.
+- Gemini tutor requests.
+- AI performance insights.
+
+For each endpoint:
+- Verify authentication.
+- Check authorization.
+- Validate inputs.
+- Enforce access to the relevant class, user, or record.
+- Return structured responses.
+- Handle errors safely.
+- Avoid exposing sensitive internal details.
+- Log relevant administrative actions.
+
+Use appropriate rate limits for messaging, uploads, and AI endpoints.
+
+## 24. FILE UPLOADS
+
+Implement secure uploads for:
+- Profile pictures.
+- Learning materials.
+- Assignment submissions.
+- Discussion attachments.
+- Message attachments.
+
+Requirements:
+- Restrict file size.
+- Validate file type.
+- Use private storage where necessary.
+- Use unique storage paths.
+- Prevent unauthorized overwriting.
+- Verify access before downloads.
+- Avoid trusting filenames or MIME types supplied by the client.
+- Do not expose private files through unrestricted public URLs.
+- Handle failed uploads gracefully.
+
+## 25. NOTIFICATIONS
+
+Create an in-app notification center.
+
+Notification types:
+- New private message.
+- New discussion reply.
+- New announcement.
+- Assignment created.
+- Assignment deadline approaching.
+- Assignment graded.
+- New quiz published.
+- Quiz results released.
+- Teacher feedback received.
+- Relevant academic updates.
+
+Requirements:
+- Display unread counts.
+- Mark notifications as read.
+- Link notifications to relevant pages.
+- Respect recipient authorization.
+- Avoid leaking private message content through notification previews.
+- Persist notifications in the database.
+
+Push notifications can be added if Firebase Cloud Messaging is configured and supported.
+
+## 26. SEARCH
+
+Implement authorized search for:
+- Classes.
+- Subjects.
+- Learning materials.
+- Assignments.
+- Announcements.
+- Discussion posts.
+- Conversations, where permitted.
+
+Search must respect user permissions.
+
+Do not implement global search that returns private messages, student information, or restricted content to unauthorized users.
+
+Use pagination and reasonable query limits.
+
+## 27. NAVIGATION
+
+### Administrator sidebar
+
+- Dashboard
+- Users & Roles
+- Classes
+- Subjects
+- Enrollments
+- Parent–Student Links
+- Academic Management
+- Attendance
+- Announcements
+- Messages
+- Discussions
+- AI Insights
+- Reports
+- Settings
+
+### Teacher sidebar
+
+- Dashboard
+- My Classes
+- Subjects
+- Learning Materials
+- Assignments
+- Submissions
+- Quizzes
+- Test Marks
+- Attendance
+- Announcements
+- Messages
+- Class Discussions
+- Study Groups
+- Gemini AI Assistant
+- Student Performance
+- My Profile
+
+### Student sidebar
+
+- Dashboard
+- My Classes
+- Learning Materials
+- Assignments
+- Quizzes
+- My Marks
+- My Report Card
+- Attendance
+- Announcements
+- Messages
+- Class Discussions
+- Study Groups
+- Gemini AI Tutor
+- My Profile
+
+### Parent sidebar
+
+- Dashboard
+- My Children
+- Academic Progress
+- Report Cards
+- Attendance
+- Assignments
+- Announcements
+- Messages
+- My Profile
+
+Hide navigation items that are not applicable to the current user's role.
+
+Still enforce permissions on the server and database.
+
+## 28. DASHBOARD CONTENT
+
+### Administrator dashboard
+
+Show:
+- Total students.
+- Total teachers.
+- Total classes.
+- Active users.
+- Recent announcements.
+- School-wide attendance summary.
+- Academic performance overview.
+- Recent administrative activity.
+
+### Teacher dashboard
+
+Show:
+- Assigned classes.
+- Student counts.
+- Pending assignment reviews.
+- Upcoming tests.
+- Attendance overview.
+- Recent student questions.
+- Unread messages.
+- Recent discussions.
+- AI-generated class insights.
+
+### Student dashboard
+
+Show:
+- Enrolled classes.
+- Upcoming assignments.
+- Available quizzes.
+- Recent marks.
+- Attendance summary.
+- Teacher announcements.
+- Unread messages.
+- Active discussions.
+- Quick access to the Gemini AI tutor.
+
+### Parent dashboard
+
+Show:
+- Linked children.
+- Academic summaries.
+- Attendance summaries.
+- Upcoming deadlines.
+- Recent announcements.
+- Available report cards.
+- Teacher messages.
+
+Every dashboard must use real authorized database data.
+
+Provide appropriate empty states when no data is available.
+
+## 29. PERFORMANCE AND CODE QUALITY
+
+- Use modular components.
+- Separate business logic from presentation.
+- Use reusable form controls.
+- Validate inputs on both client and server.
+- Implement error boundaries where appropriate.
+- Avoid unnecessary database reads.
+- Use pagination for large datasets.
+- Avoid loading all messages or records at once.
+- Use efficient Firestore queries.
+- Implement accessible keyboard navigation.
+- Provide descriptive labels for form controls.
+- Use TypeScript types for application data.
+- Avoid unsafe type assertions.
+- Remove unused imports and code.
+- Keep configuration separate from application logic.
+- Do not hardcode credentials.
+- Document environment variables.
+- Maintain a consistent design system.
+
+## 30. REQUIRED APPLICATION PAGES
+
+Build these pages:
+
+1. Sign in.
+2. Registration.
+3. Password recovery.
+4. Role-specific dashboard.
+5. User directory with authorization.
+6. User profile.
+7. Profile editing.
+8. Account settings.
+9. Class list.
+10. Class details.
+11. Subject list.
+12. Subject details.
+13. Class roster.
+14. Learning materials.
+15. Material details.
+16. Assignment list.
+17. Assignment details.
+18. Assignment creation and editing.
+19. Student submission.
+20. Submission review.
+21. AI grading assistant.
+22. Test management.
+23. Test marks entry.
+24. Report card.
+25. Attendance entry.
+26. Attendance history.
+27. Announcement list.
+28. Announcement creation and editing.
+29. Quiz list.
+30. Quiz creation and editing.
+31. Gemini quiz generator.
+32. Quiz-taking interface.
+33. Quiz results.
+34. Private message inbox.
+35. Private conversation.
+36. Discussion group list.
+37. Discussion group details.
+38. Discussion post details.
+39. Study groups.
+40. Gemini AI tutor.
+41. Gemini AI teacher assistant.
+42. AI performance insights.
+43. Notification center.
+44. User and role administration.
+45. Parent–student relationship management.
+46. School settings.
+47. Unauthorized access page.
+48. Not-found page.
+
+Ensure every implemented page has functional navigation and appropriate loading, error, and empty states.
+
+## 31. IMPLEMENTATION ORDER
+
+Build the application in the following sequence.
+
+### Phase 1: Foundation
+
+- Initialize the project.
+- Configure the design system.
+- Set up routing.
+- Integrate Firebase.
+- Implement authentication.
+- Create trusted role management.
+- Implement route protection.
+- Establish database and storage rules.
+- Create responsive dashboards.
+
+### Phase 2: Academic Structure
+
+- User profiles.
+- Classes.
+- Subjects.
+- Enrollments.
+- Teacher assignments.
+- Parent–student links.
+- Learning materials.
+
+### Phase 3: Assignments and Assessments
+
+- Assignments.
+- File submissions.
+- Teacher review.
+- Gemini grading suggestions.
+- Tests.
+- Test marks.
+- Report cards.
+
+### Phase 4: Attendance and Communication
+
+- Attendance.
+- Announcements.
+- Notifications.
+- Private messages.
+- Group discussions.
+- Student–teacher interactions.
+- Moderation and reporting.
+
+### Phase 5: Quizzes and AI
+
+- Quiz creation.
+- Gemini quiz generation.
+- Quiz-taking interface.
+- Automatic scoring.
+- Gemini AI tutor.
+- Gemini AI teacher assistant.
+- Performance insights.
+- Discussion summaries.
+
+### Phase 6: Testing and Production Readiness
+
+- Test authentication.
+- Test role permissions.
+- Test database rules.
+- Test storage permissions.
+- Test AI integrations.
+- Test all CRUD operations.
+- Test report card generation.
+- Test responsive layouts.
+- Test loading and error states.
+- Test unauthorized access.
+- Fix all critical errors.
+- Document deployment and configuration.
+
+## 32. ACCEPTANCE CRITERIA
+
+The application is not complete until the following requirements are met.
+
+### Authentication
+- Users can sign in and sign out.
+- Password recovery works.
+- Public registration cannot grant privileged roles.
+- Protected pages require authentication.
+
+### Permissions
+- Users only access records they are authorized to see.
+- Students cannot modify official marks or attendance.
+- Parents cannot view unrelated students' records.
+- Teachers cannot manage unrelated classes.
+- Private conversations are accessible only to participants.
+- Discussion groups enforce membership permissions.
+
+### Academic functionality
+- Administrators can manage authorized classes and subjects.
+- Teachers can create assignments.
+- Students can submit files.
+- Teachers can grade submissions.
+- Marks are persisted.
+- Report cards use actual saved records.
+- Attendance is persisted and validated.
+- Announcements reach the intended audience.
+
+### Communication
+- Private messages persist.
+- Authorized users can access conversations.
+- Discussion posts and replies persist.
+- Notifications link to relevant content.
+- Moderation permissions work.
+
+### Gemini AI
+- The application uses the configured Google Gemini model.
+- AI requests run through a secure backend.
+- Quiz generation produces validated question data.
+- Grading suggestions require teacher approval.
+- Tutor conversations are saved.
+- Performance insights use authorized records.
+- AI failures are handled gracefully.
+
+### User experience
+- The application is responsive.
+- Navigation is consistent.
+- Forms validate input.
+- Loading and error states are visible.
+- Buttons perform their intended actions.
+- No critical feature is represented solely by placeholder content.
+
+## 33. FINAL INSTRUCTIONS
+
+Start by examining the available Google AI Studio project environment and identifying the supported framework and backend integration options.
+
+Then build the application in phases.
+
+First, implement a working foundation with authentication, trusted role management, database integration, security rules, the design system, and role-specific navigation.
+
+Next, implement the academic features and communication system.
+
+Finally, integrate Gemini AI, complete testing, and document deployment.
+
+Do not attempt to bypass necessary configuration by creating fake authentication or local-only mock databases.
+
+If a service requires credentials or external setup, provide clear setup instructions.
+
+Keep a checklist of completed and incomplete features.
+
+At the end of each phase:
+1. Verify the application builds.
+2. Fix TypeScript and runtime errors.
+3. Test the relevant functionality.
+4. Verify authorization rules.
+5. Confirm that data persists.
+6. Continue to the next phase.
+
+The final goal is a fully functional, secure, production-oriented School LMS powered by Google Gemini AI, with an elegant academic interface and complete support for administrators, teachers, students, and parents.

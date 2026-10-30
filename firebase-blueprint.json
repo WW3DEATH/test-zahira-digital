@@ -1,0 +1,411 @@
+{
+  "entities": {
+    "userProfile": {
+      "title": "User Profile",
+      "description": "Stores user personal, academic, and role metadata",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student", "parent"] },
+        "avatarUrl": { "type": "string" },
+        "bio": { "type": "string" },
+        "phone": { "type": "string" },
+        "assignedClassIds": { "type": "array" },
+        "enrolledClassIds": { "type": "array" },
+        "linkedStudentIds": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "email", "fullName", "role"]
+    },
+    "schoolClass": {
+      "title": "School Class",
+      "description": "Defines an academic grade/cohort class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "grade": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "description": { "type": "string" },
+        "room": { "type": "string" },
+        "teacherIds": { "type": "array" },
+        "studentIds": { "type": "array" },
+        "subjectIds": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "grade", "academicYear"]
+    },
+    "subject": {
+      "title": "Subject",
+      "description": "Academic course subject taught across classes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "color": { "type": "string" },
+        "teacherIds": { "type": "array" },
+        "classIds": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "code", "name"]
+    },
+    "learningMaterial": {
+      "title": "Learning Material",
+      "description": "Educational documents, syllabus, and study resources uploaded by teachers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "fileType": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "classId", "subjectId", "teacherId"]
+    },
+    "assignment": {
+      "title": "Assignment",
+      "description": "Coursework assignment assigned by teachers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "instructions": { "type": "string" },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "maxMarks": { "type": "number" },
+        "rubric": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "classId", "subjectId", "teacherId", "dueDate", "maxMarks"]
+    },
+    "submission": {
+      "title": "Assignment Submission",
+      "description": "Student work submitted for an assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignmentId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "classId": { "type": "string" },
+        "content": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "submitted", "late", "under_review", "graded", "revision"] },
+        "marksObtained": { "type": "number" },
+        "feedback": { "type": "string" },
+        "aiFeedbackSuggestion": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "gradedAt": { "type": "string" }
+      },
+      "required": ["id", "assignmentId", "studentId", "status"]
+    },
+    "test": {
+      "title": "Academic Test",
+      "description": "Official exam or test record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "examDate": { "type": "string" },
+        "maxMarks": { "type": "number" },
+        "term": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "classId", "subjectId", "maxMarks", "term"]
+    },
+    "testMark": {
+      "title": "Test Mark",
+      "description": "Grade awarded to student for a specific test",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "testId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "marksObtained": { "type": "number" },
+        "maxMarks": { "type": "number" },
+        "feedback": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "testId", "studentId", "marksObtained", "maxMarks"]
+    },
+    "attendance": {
+      "title": "Daily Attendance",
+      "description": "Daily attendance roster log for a class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "date": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "records": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "classId", "date", "teacherId", "records"]
+    },
+    "announcement": {
+      "title": "School Announcement",
+      "description": "Broadcast notice for school or specific class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "audience": { "type": "string", "enum": ["all", "teachers", "students", "parents", "class"] },
+        "classId": { "type": "string" },
+        "isPinned": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "authorId", "audience"]
+    },
+    "quiz": {
+      "title": "Quiz",
+      "description": "Interactive assessment containing questions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "totalMarks": { "type": "number" },
+        "isPublished": { "type": "boolean" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "classId", "subjectId", "questions"]
+    },
+    "quizAttempt": {
+      "title": "Quiz Attempt",
+      "description": "Student submission for a quiz",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "quizId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "classId": { "type": "string" },
+        "answers": { "type": "object" },
+        "score": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "status": { "type": "string" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "quizId", "studentId", "answers"]
+    },
+    "conversation": {
+      "title": "Private Conversation",
+      "description": "1-on-1 private messaging channel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "participantIds": { "type": "array" },
+        "participantNames": { "type": "object" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "participantIds"]
+    },
+    "message": {
+      "title": "Direct Message",
+      "description": "Message within a conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "conversationId", "senderId", "text"]
+    },
+    "discussion": {
+      "title": "Discussion Topic",
+      "description": "Community or class forum topic",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "category": { "type": "string", "enum": ["class", "subject", "study_group", "general"] },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "tags": { "type": "array" },
+        "repliesCount": { "type": "number" },
+        "isPinned": { "type": "boolean" },
+        "isLocked": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "authorId", "category"]
+    },
+    "discussionReply": {
+      "title": "Discussion Reply",
+      "description": "Reply to a forum topic",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "discussionId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "discussionId", "authorId", "content"]
+    },
+    "tutorSession": {
+      "title": "Gemini AI Tutor Session",
+      "description": "Student tutoring conversation log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "subject": { "type": "string" },
+        "topic": { "type": "string" },
+        "style": { "type": "string" },
+        "messages": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "studentId", "subject", "topic"]
+    },
+    "notification": {
+      "title": "Notification",
+      "description": "User in-app alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "link": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "message"]
+    },
+    "schoolSetting": {
+      "title": "School Setting",
+      "description": "System-wide school institutional configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "terms": { "type": "array" },
+        "contactEmail": { "type": "string" },
+        "address": { "type": "string" },
+        "logoUrl": { "type": "string" }
+      },
+      "required": ["id", "schoolName"]
+    }
+  },
+  "firestore": {
+    "/userProfiles/{userId}": {
+      "schema": { "$ref": "userProfile" },
+      "description": "User profile information"
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "schoolClass" },
+      "description": "Academic classes"
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "subject" },
+      "description": "Academic subjects"
+    },
+    "/learningMaterials/{materialId}": {
+      "schema": { "$ref": "learningMaterial" },
+      "description": "Uploaded classroom study materials"
+    },
+    "/assignments/{assignmentId}": {
+      "schema": { "$ref": "assignment" },
+      "description": "Class assignments"
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "submission" },
+      "description": "Student assignment submissions"
+    },
+    "/tests/{testId}": {
+      "schema": { "$ref": "test" },
+      "description": "Examinations and formal tests"
+    },
+    "/testMarks/{markId}": {
+      "schema": { "$ref": "testMark" },
+      "description": "Student marks awarded for tests"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "attendance" },
+      "description": "Class daily attendance registers"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "announcement" },
+      "description": "School and class announcements"
+    },
+    "/quizzes/{quizId}": {
+      "schema": { "$ref": "quiz" },
+      "description": "Interactive quizzes and tests"
+    },
+    "/quizAttempts/{attemptId}": {
+      "schema": { "$ref": "quizAttempt" },
+      "description": "Student quiz attempts and scores"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "conversation" },
+      "description": "Direct chat conversation channels"
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "message" },
+      "description": "Direct chat messages"
+    },
+    "/discussions/{discussionId}": {
+      "schema": { "$ref": "discussion" },
+      "description": "Group discussions and study topics"
+    },
+    "/discussionReplies/{replyId}": {
+      "schema": { "$ref": "discussionReply" },
+      "description": "Replies to group discussions"
+    },
+    "/tutorSessions/{sessionId}": {
+      "schema": { "$ref": "tutorSession" },
+      "description": "Gemini AI student tutoring conversations"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "notification" },
+      "description": "In-app notifications"
+    },
+    "/schoolSettings/{settingId}": {
+      "schema": { "$ref": "schoolSetting" },
+      "description": "Global school configuration"
+    }
+  }
+}

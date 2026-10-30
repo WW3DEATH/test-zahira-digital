@@ -1,0 +1,6 @@
+{
+  "name": "Academia AI - School Learning Management System",
+  "description": "Comprehensive school learning management system featuring multi-role portals (Admin, Teacher, Student, Parent), attendance, assignments, quizzes, report cards, communication, and Gemini AI-powered teaching & study assistants.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
