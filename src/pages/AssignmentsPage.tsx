@@ -13,7 +13,9 @@ import {
   FileCheck2,
   User,
   ArrowRight,
+  Download,
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
@@ -203,28 +205,278 @@ export const AssignmentsPage: React.FC = () => {
     }
   };
 
+  // Export all coursework assignments to PDF
+  const handleExportAllPDF = () => {
+    try {
+      const doc = new jsPDF();
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(15, 23, 42);
+      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text('OFFICIAL ACADEMIC COURSEWORK & ASSIGNMENTS DIRECTORY', 20, 28);
+      doc.text('Mawanella, Sri Lanka • G.C.E. Advanced Level Academic Oversight', 20, 33);
+
+      doc.setDrawColor(203, 213, 225);
+      doc.line(20, 37, 190, 37);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Cohort: Zahira College 2k28 Science EM', 20, 46);
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 52);
+      doc.text(`Total Coursework Items: ${assignments.length}`, 120, 46);
+      doc.text('Academic Lead: mnmjaasim@gmail.com', 120, 52);
+
+      let y = 62;
+      assignments.forEach((assign, index) => {
+        if (y > 230) {
+          doc.addPage();
+          y = 25;
+        }
+
+        const assignSubs = submissions.filter((s) => s.assignmentId === assign.id);
+        const mySub = assignSubs.find((s) => s.studentId === userProfile?.userId);
+
+        doc.setFillColor(239, 246, 255); // soft blue
+        doc.roundedRect(20, y, 170, 7.5, 1, 1, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(30, 64, 175); // blue-800
+        doc.text(`${index + 1}. ${assign.title}`, 24, y + 5.2);
+
+        y += 13;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`Due Date: ${assign.dueDate}`, 24, y);
+        doc.text(`Max Marks: ${assign.maxMarks} Pts`, 85, y);
+        doc.text(`Submissions Logged: ${assignSubs.length}`, 135, y);
+
+        y += 6;
+        doc.setTextColor(100, 116, 139);
+        const descLines = doc.splitTextToSize(`Description: ${assign.description}`, 162);
+        doc.text(descLines, 24, y);
+        y += descLines.length * 4.5;
+
+        if (assign.instructions) {
+          y += 2;
+          doc.setTextColor(51, 65, 85);
+          const instLines = doc.splitTextToSize(`Instructions: ${assign.instructions}`, 162);
+          doc.text(instLines, 24, y);
+          y += instLines.length * 4.5;
+        }
+
+        if (assign.rubric) {
+          y += 2;
+          doc.setTextColor(180, 83, 9);
+          const rubLines = doc.splitTextToSize(`Rubric: ${assign.rubric}`, 162);
+          doc.text(rubLines, 24, y);
+          y += rubLines.length * 4.5;
+        }
+
+        if (mySub) {
+          y += 2;
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(22, 101, 52);
+          doc.text(`My Submission: ${mySub.status.toUpperCase()} • Marks: ${mySub.marksObtained ?? 'Pending'}/${assign.maxMarks}`, 24, y);
+          y += 5;
+          if (mySub.feedback) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8.5);
+            doc.setTextColor(71, 85, 105);
+            doc.text(`Faculty Remarks: ${mySub.feedback}`, 24, y);
+            y += 5;
+          }
+        }
+
+        y += 5;
+        doc.setDrawColor(226, 232, 240);
+        doc.line(20, y, 190, y);
+        y += 8;
+      });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Zahira College Mawanella • Official Academic Record • Confidential', 20, 285);
+
+      doc.save(`Zahira_College_Mawanella_Assignments_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (e) {
+      console.error('Assignments PDF error:', e);
+    }
+  };
+
+  // Export single assignment worksheet or task brief to PDF
+  const handleExportSingleAssignmentPDF = (assign: Assignment) => {
+    try {
+      const doc = new jsPDF();
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(15, 23, 42);
+      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text('OFFICIAL COURSEWORK TASK SHEET & SUBMISSION BRIEF', 20, 28);
+      doc.text('Mawanella, Sri Lanka • G.C.E. Advanced Level Science Stream', 20, 33);
+
+      doc.setDrawColor(203, 213, 225);
+      doc.line(20, 37, 190, 37);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(30, 64, 175);
+      doc.text(assign.title, 20, 48);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Due Date: ${assign.dueDate}`, 20, 56);
+      doc.text(`Maximum Marks: ${assign.maxMarks} Points`, 85, 56);
+      doc.text('Target: Zahira College 2k28 Science EM', 135, 56);
+
+      let y = 68;
+      doc.setFillColor(241, 245, 249);
+      doc.rect(20, y, 170, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      doc.text('COURSEWORK INSTRUCTIONS & GUIDELINES', 24, y + 5);
+
+      y += 12;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      const instLines = doc.splitTextToSize(assign.instructions || assign.description, 165);
+      doc.text(instLines, 24, y);
+      y += instLines.length * 5 + 6;
+
+      if (assign.rubric) {
+        doc.setFillColor(254, 243, 199);
+        doc.rect(20, y, 170, 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(146, 64, 14);
+        doc.text('EVALUATION RUBRIC & CRITERIA', 24, y + 5);
+
+        y += 12;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        const rubLines = doc.splitTextToSize(assign.rubric, 165);
+        doc.text(rubLines, 24, y);
+        y += rubLines.length * 5 + 8;
+      }
+
+      // Check student submission
+      const assignSubs = submissions.filter((s) => s.assignmentId === assign.id);
+      const mySub = assignSubs.find((s) => s.studentId === userProfile?.userId);
+
+      if (mySub) {
+        doc.setFillColor(236, 253, 245);
+        doc.rect(20, y, 170, 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(6, 95, 70);
+        doc.text(`STUDENT SUBMISSION RECORD (${mySub.status.toUpperCase()})`, 24, y + 5);
+
+        y += 12;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Student: ${mySub.studentName}`, 24, y);
+        doc.text(`Submitted At: ${new Date(mySub.submittedAt).toLocaleString()}`, 110, y);
+
+        y += 6;
+        if (mySub.marksObtained !== undefined) {
+          doc.setTextColor(22, 101, 52);
+          doc.text(`Final Certified Score: ${mySub.marksObtained} / ${assign.maxMarks}`, 24, y);
+          y += 6;
+        }
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        const subContentLines = doc.splitTextToSize(`Work / Solution: ${mySub.content}`, 165);
+        doc.text(subContentLines, 24, y);
+        y += subContentLines.length * 4.5 + 4;
+
+        if (mySub.feedback) {
+          doc.setFont('helvetica', 'italic');
+          doc.setTextColor(30, 58, 138);
+          const feedbackLines = doc.splitTextToSize(`Teacher Feedback: ${mySub.feedback}`, 165);
+          doc.text(feedbackLines, 24, y);
+          y += feedbackLines.length * 4.5;
+        }
+      } else {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(20, y, 170, 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(100, 116, 139);
+        doc.text('STUDENT WORKING & SOLUTION SPACE (OFFLINE WORKSHEET)', 24, y + 5);
+
+        y += 14;
+        doc.setDrawColor(226, 232, 240);
+        for (let i = 0; i < 5; i++) {
+          doc.line(24, y, 186, y);
+          y += 9;
+        }
+      }
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Zahira College Mawanella • Official Academic Document', 20, 285);
+
+      doc.save(`Zahira_College_Mawanella_Assignment_${assign.id}.pdf`);
+    } catch (e) {
+      console.error('Single assignment PDF error:', e);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-900">
-            Coursework Assignments & Submissions
-          </h2>
-          <p className="text-xs text-stone-500 mt-1">
-            Zahira College 2k28 Science EM coursework briefs, live student submissions, and Gemini Flash rubric evaluation
+          <div className="flex items-center gap-2">
+            <h2 className="font-serif text-2xl font-bold tracking-tight text-slate-900">
+              Coursework Assignments & Submissions
+            </h2>
+            <span className="rounded-full bg-blue-100 text-blue-700 px-3 py-0.5 text-[11px] font-bold border border-blue-200">
+              Zahira College Mawanella
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            2k28 Science EM coursework briefs, live student submissions, and Gemini Flash rubric evaluation
           </p>
         </div>
 
-        {(activeRole === 'teacher' || activeRole === 'admin') && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-xs font-bold text-stone-950 transition-all shadow-md shrink-0"
+            onClick={handleExportAllPDF}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-700 transition-colors shadow-2xs shrink-0"
           >
-            <Plus className="w-4 h-4" />
-            <span>Create Assignment</span>
+            <Download className="w-3.5 h-3.5 text-blue-600" />
+            <span>Export to PDF</span>
           </button>
-        )}
+
+          {(activeRole === 'teacher' || activeRole === 'admin') && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Assignment</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Assignment List */}
@@ -278,29 +530,40 @@ export const AssignmentsPage: React.FC = () => {
                     </p>
                   </div>
 
-                  {activeRole === 'student' && (
-                    <div>
-                      {userSub ? (
-                        <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>Status: {userSub.status.toUpperCase()}</span>
-                          {userSub.marksObtained !== undefined && (
-                            <span className="ml-1 text-emerald-950 font-bold">
-                              ({userSub.marksObtained}/{assign.maxMarks})
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setSelectedAssignmentForSubmit(assign)}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-stone-900 px-4 py-2 text-xs font-semibold text-white hover:bg-stone-800 transition-colors shadow-xs"
-                        >
-                          <Send className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Submit Solution</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <button
+                      onClick={() => handleExportSingleAssignmentPDF(assign)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-700 transition-colors shadow-2xs"
+                      title="Download PDF Coursework Brief"
+                    >
+                      <Download className="w-3 h-3 text-blue-600" />
+                      <span>PDF Document</span>
+                    </button>
+
+                    {activeRole === 'student' && (
+                      <div>
+                        {userSub ? (
+                          <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>Status: {userSub.status.toUpperCase()}</span>
+                            {userSub.marksObtained !== undefined && (
+                              <span className="ml-1 text-emerald-950 font-bold">
+                                ({userSub.marksObtained}/{assign.maxMarks})
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setSelectedAssignmentForSubmit(assign)}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-semibold text-white transition-colors shadow-xs"
+                          >
+                            <Send className="w-3.5 h-3.5 text-white" />
+                            <span>Submit Solution</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

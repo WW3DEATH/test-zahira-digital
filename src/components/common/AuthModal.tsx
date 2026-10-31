@@ -82,9 +82,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {error && (
-          <div className="mb-4 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>{error}</span>
+          <div className="mb-4 rounded-xl bg-rose-50 border border-rose-200 p-3.5 text-xs text-rose-800 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-semibold block">
+                {error.includes('operation-not-allowed')
+                  ? 'Authentication Provider Disabled in Firebase'
+                  : error}
+              </span>
+              {error.includes('operation-not-allowed') && (
+                <p className="text-[11px] text-rose-700 mt-1">
+                  Email/Password sign-in is disabled in your Firebase project. In the Firebase Console, go to <strong>Authentication &rarr; Sign-in method</strong>, click <strong>Email/Password</strong>, and toggle <strong>Enable</strong>.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -124,6 +135,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {/* Email form */}
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+          {!isSignUp && (
+            <div className="mb-2">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1.5">
+                Quick Access Profiles:
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEmail('mnmjaasim@gmail.com');
+                    setPassword('jaasim2010');
+                    try {
+                      setLoading(true);
+                      await signInWithEmail('mnmjaasim@gmail.com', 'jaasim2010');
+                      onClose();
+                    } catch (e: any) {
+                      setError(e.message || 'Quick login failed');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="p-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 text-[11px] font-bold text-left transition-all flex items-center justify-between shadow-2xs"
+                >
+                  <span className="truncate">M. N. M. Jaasim</span>
+                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded-md bg-red-600 text-white font-extrabold shrink-0">Admin</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEmail('scholar@zahira.lk');
+                    setPassword('zahira2028');
+                    try {
+                      setLoading(true);
+                      await signInWithEmail('scholar@zahira.lk', 'zahira2028');
+                      onClose();
+                    } catch (e: any) {
+                      setError(e.message || 'Quick login failed');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="p-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 text-[11px] font-bold text-left transition-all flex items-center justify-between shadow-2xs"
+                >
+                  <span className="truncate">Science Scholar</span>
+                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-extrabold shrink-0">Student</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {isSignUp && (
             <>
               <div>

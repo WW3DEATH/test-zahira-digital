@@ -20,6 +20,7 @@ import {
   Save,
   BookOpen,
   Filter,
+  ShieldCheck,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -819,6 +820,18 @@ export const CalendarPage: React.FC = () => {
       {/* TAB 2: STUDENT ATTENDANCE CALENDAR & QUICK REGISTER */}
       {activeTab === 'attendance' && (
         <div className="space-y-5">
+          {!isTeacherOrAdmin && (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-2xs flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
+              <div className="text-xs text-slate-700 leading-relaxed">
+                <span className="font-bold text-blue-900 block mb-0.5">
+                  Teacher-Certified Attendance Policy (View-Only Mode)
+                </span>
+                Official student roll-calls are conducted exclusively by authorized teachers and administration. Students have certified read-only access.
+              </div>
+            </div>
+          )}
+
           {/* Controls Bar */}
           <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
             <div className="flex flex-wrap items-center gap-3">

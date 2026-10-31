@@ -12,7 +12,7 @@ import {
   Link2,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, UserRole } from '../types';
 import { REAL_ADMIN_PROFILE } from '../services/dataService';
@@ -69,12 +69,13 @@ export const UsersAdminPage: React.FC = () => {
         email: newEmail.trim().toLowerCase(),
         fullName: newName.trim(),
         role: newRole,
+        avatarUrl: '',
         bio: `${newRole.toUpperCase()} • Zahira College 2k28 Science EM`,
         assignedClassIds: ['class-2k28-science-em'],
         createdAt: new Date().toISOString(),
       };
 
-      await setDoc(doc(db, 'userProfiles', id), newUser);
+      await setDoc(doc(db, 'userProfiles', id), sanitizeFirestoreDoc(newUser));
       setShowAddModal(false);
       setNewEmail('');
       setNewName('');

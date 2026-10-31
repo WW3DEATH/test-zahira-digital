@@ -318,6 +318,84 @@ Provide:
   }
 });
 
+// 7. Gemini AI Floating Student Assistant (Assignments, Deadlines & Class Schedules)
+app.post('/api/gemini/student-assistant', async (req, res) => {
+  try {
+    const { messages, studentContext } = req.body;
+
+    const studentName = studentContext?.studentName || 'Student';
+    const role = studentContext?.role || 'student';
+    const assignments = studentContext?.assignments || [];
+    const events = studentContext?.events || [];
+    const timetable = studentContext?.timetable || [];
+
+    const assignmentsSummary = assignments.length > 0
+      ? assignments.map((a: any, i: number) => {
+          const statusStr = a.isSubmitted ? `Submitted (Grade: ${a.marksObtained ?? 'Pending'}/${a.maxMarks})` : 'Pending / Not yet submitted';
+          return `${i + 1}. [${a.subject || 'Coursework'}] "${a.title}" - Due: ${a.dueDate} (Max Marks: ${a.maxMarks}) - Status: ${statusStr}. Description: ${a.description || 'N/A'}`;
+        }).join('\n')
+      : 'No assignments registered yet in the current term.';
+
+    const scheduleSummary = timetable.length > 0
+      ? timetable.map((day: any) => `${day.day}: ${day.periods?.map((p: any) => `${p.time}: ${p.subject} (Faculty: ${p.teacher}, Room: ${p.room})`).join(' | ')}`).join('\n')
+      : `Weekly Timetable for Zahira College 2k28 Science EM:
+- Monday: 08:00-09:30 Combined Mathematics (Pure Maths - Mr. M. N. M. Jaasim, Room Sci-1) | 09:45-11:15 Physics (Mechanics - Dr. A. H. Farook, Physics Lab) | 11:30-13:00 Chemistry (Physical Chemistry - Mrs. S. Rizwan, Chem Lab)
+- Tuesday: 08:00-09:30 Chemistry (Inorganic - Mrs. S. Rizwan) | 09:45-11:15 Combined Mathematics (Applied Maths) | 11:30-13:00 ICT / English
+- Wednesday: 08:00-09:30 Physics (Waves & Optics) | 09:45-11:15 Combined Mathematics (Calculus Problem Lab) | 11:30-13:00 Chemistry Practical
+- Thursday: 08:00-09:30 Physics Practical Workshop | 09:45-11:15 Combined Mathematics (Trigonometry) | 11:30-13:00 Biology / ICT
+- Friday: 08:00-09:30 General Science Seminar & Revision | 09:45-11:00 Weekly Model Paper Review`;
+
+    const eventsSummary = events.length > 0
+      ? events.map((e: any) => `- ${e.date} (${e.time || 'All Day'}): ${e.title} [${e.type || 'Event'}] - ${e.description || ''}`).join('\n')
+      : 'Term 1 Mid-Term Assessments: Nov 20-25 | Annual Science Day: Dec 12.';
+
+    const systemInstruction = `You are "244 AI", the official intelligent Academic Assistant for Zahira College Mawanella (2k28 Science English Medium batch).
+You are speaking to ${studentName} (${role}).
+
+Today's Date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
+
+Here is the real-time school academic records and schedule context:
+### ACTIVE COURSEWORK & ASSIGNMENTS:
+${assignmentsSummary}
+
+### CLASS TIMETABLE & WEEKLY SCHEDULE:
+${scheduleSummary}
+
+### UPCOMING SCHOOL CALENDAR EVENTS & DEADLINES:
+${eventsSummary}
+
+YOUR MISSION:
+1. Provide accurate, clear, and instant answers when the student asks about their current assignments, homework status, due dates, or teacher requirements.
+2. Provide precise answers when they ask about class schedules, timetable periods, lecture rooms, faculty in charge, or today's/tomorrow's schedule.
+3. Be warm, motivating, collegiate, and encouraging, embodying the proud tradition of Zahira College Mawanella.
+4. When asked about honours, streaks, high quiz scores, or consistent attendance, explain how the 2k28 Digital Badge System works (tiers from Bronze to Platinum, XP rewards, and Level progression) to keep scholars engaged.
+5. Format dates, periods, and deadlines clearly using bullet points and bold highlights.
+6. The floating widget includes a built-in Math.js Scientific Solver (supporting derivatives, limits, integrals, trigonometry, vectors, unit conversions, and algebraic simplification). When discussing math or physics equations, explain the step-by-step reasoning clearly and affirm exact computational results.
+7. Keep responses crisp and easy to scan in a floating chat window.`;
+
+    const contents = (messages || []).map((m: { role: string; content: string }) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents,
+      config: {
+        systemInstruction,
+        temperature: 0.6,
+      },
+    });
+
+    res.json({
+      reply: response.text || 'I am ready to assist with your Zahira College assignments and schedule.',
+    });
+  } catch (error: any) {
+    console.error('Student Assistant Error:', error);
+    res.status(500).json({ error: error.message || 'Student Assistant service error' });
+  }
+});
+
 // Start server with Vite middleware in development or static in production
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 

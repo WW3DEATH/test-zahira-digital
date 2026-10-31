@@ -288,3 +288,32 @@ export interface SchoolSetting {
   primaryColor?: string;
   accentColor?: string;
 }
+
+export type BadgeCategory = 'streak' | 'quiz' | 'attendance' | 'assignment' | 'milestone';
+export type BadgeTier = 'bronze' | 'silver' | 'gold' | 'platinum';
+
+export interface StudentBadge {
+  id: string;
+  title: string;
+  description: string;
+  category: BadgeCategory;
+  tier: BadgeTier;
+  iconName: string;
+  requirement: string;
+  currentValue: number;
+  targetValue: number;
+  progressPercent: number;
+  isUnlocked: boolean;
+  unlockedAt?: string;
+  xpBonus: number;
+}
+
+export interface StudentBadgeSummary {
+  badges: StudentBadge[];
+  totalXp: number;
+  unlockedCount: number;
+  totalCount: number;
+  level: number;
+  levelTitle: string;
+  currentStreakDays: number;
+}

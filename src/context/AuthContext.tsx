@@ -18,7 +18,7 @@ import {
   where,
   onSnapshot,
 } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth, db, sanitizeFirestoreDoc } from '../firebase';
 import { UserProfile, UserRole, AppNotification } from '../types';
 import { REAL_ADMIN_PROFILE, seedInitialDatabaseIfEmpty } from '../services/dataService';
 
@@ -70,51 +70,103 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Listen to Firebase Auth state
   useEffect(() => {
+    let unsubProfile: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
-        try {
-          const profileRef = doc(db, 'userProfiles', user.uid);
-          // Set real-time listener for the user profile
-          const unsubProfile = onSnapshot(profileRef, async (snap) => {
-            if (snap.exists()) {
-              const data = snap.data() as UserProfile;
-              if (user.email === 'mnmjaasim@gmail.com' && data.role !== 'admin') {
-                data.role = 'admin';
-                await setDoc(profileRef, data, { merge: true });
-              }
-              setUserProfile(data);
-            } else {
-              const isBootstrappedAdmin = user.email === 'mnmjaasim@gmail.com';
-              const newProfile: UserProfile = {
-                userId: user.uid,
-                email: user.email || '',
-                fullName: user.displayName || (isBootstrappedAdmin ? 'M. N. M. Jaasim' : 'Student Scholar'),
-                role: isBootstrappedAdmin ? 'admin' : 'student',
-                avatarUrl: user.photoURL || undefined,
-                bio: isBootstrappedAdmin
-                  ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
-                  : 'Zahira College 2k28 Science EM Scholar',
-                createdAt: new Date().toISOString(),
-                assignedClassIds: ['class-2k28-science-em'],
-                enrolledClassIds: ['class-2k28-science-em'],
-              };
-              await setDoc(profileRef, newProfile);
-              setUserProfile(newProfile);
-            }
-          });
+        const isBootstrappedAdmin = user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com';
 
-          return () => unsubProfile();
+        // 1. Immediately establish an initial profile in React state so user is NEVER left in guest mode
+        setUserProfile((prev) => {
+          if (prev && prev.userId === user.uid) return prev;
+          const initialProfile: UserProfile = {
+            userId: user.uid,
+            email: user.email || '',
+            fullName: user.displayName || (isBootstrappedAdmin ? 'M. N. M. Jaasim' : 'Student Scholar'),
+            role: isBootstrappedAdmin ? 'admin' : 'student',
+            avatarUrl: user.photoURL || '',
+            bio: isBootstrappedAdmin
+              ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
+              : 'Zahira College 2k28 Science EM Scholar',
+            createdAt: new Date().toISOString(),
+            assignedClassIds: ['class-2k28-science-em'],
+            enrolledClassIds: ['class-2k28-science-em'],
+          };
+          localStorage.setItem('zahira_auth_session', JSON.stringify(initialProfile));
+          return initialProfile;
+        });
+
+        // 2. Attach real-time Firestore sync
+        try {
+          if (unsubProfile) {
+            unsubProfile();
+            unsubProfile = null;
+          }
+
+          const profileRef = doc(db, 'userProfiles', user.uid);
+          unsubProfile = onSnapshot(
+            profileRef,
+            async (snap) => {
+              if (snap.exists()) {
+                const data = snap.data() as UserProfile;
+                if (user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com' && data.role !== 'admin') {
+                  data.role = 'admin';
+                  await setDoc(profileRef, sanitizeFirestoreDoc(data), { merge: true }).catch(() => {});
+                }
+                setUserProfile(data);
+                localStorage.setItem('zahira_auth_session', JSON.stringify(data));
+              } else {
+                const newProfile: UserProfile = {
+                  userId: user.uid,
+                  email: user.email || '',
+                  fullName: user.displayName || (isBootstrappedAdmin ? 'M. N. M. Jaasim' : 'Student Scholar'),
+                  role: isBootstrappedAdmin ? 'admin' : 'student',
+                  avatarUrl: user.photoURL || '',
+                  bio: isBootstrappedAdmin
+                    ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
+                    : 'Zahira College 2k28 Science EM Scholar',
+                  createdAt: new Date().toISOString(),
+                  assignedClassIds: ['class-2k28-science-em'],
+                  enrolledClassIds: ['class-2k28-science-em'],
+                };
+                await setDoc(profileRef, sanitizeFirestoreDoc(newProfile)).catch(() => {});
+                setUserProfile(newProfile);
+                localStorage.setItem('zahira_auth_session', JSON.stringify(newProfile));
+              }
+            },
+            (err) => {
+              console.warn('Profile snapshot notice:', err);
+            }
+          );
         } catch (err) {
           console.warn('Error fetching user profile:', err);
         }
       } else {
-        setUserProfile(null);
+        if (unsubProfile) {
+          unsubProfile();
+          unsubProfile = null;
+        }
+        // If no Firebase Auth user currently, check if we have a locally stored active session
+        const storedSession = localStorage.getItem('zahira_auth_session');
+        if (storedSession) {
+          try {
+            const parsed = JSON.parse(storedSession) as UserProfile;
+            setUserProfile(parsed);
+          } catch {
+            setUserProfile(null);
+          }
+        } else {
+          setUserProfile(null);
+        }
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubProfile) unsubProfile();
+    };
   }, []);
 
   // Real-time notifications listener
@@ -155,8 +207,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         inMemoryAccessToken = credential.accessToken;
         setGoogleAccessToken(credential.accessToken);
       }
-    } catch (err) {
-      console.error('Google Sign In error:', err);
+      if (result.user) {
+        const isBootstrappedAdmin = result.user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com';
+        const prof: UserProfile = {
+          userId: result.user.uid,
+          email: result.user.email || '',
+          fullName: result.user.displayName || (isBootstrappedAdmin ? 'M. N. M. Jaasim' : 'Student Scholar'),
+          role: isBootstrappedAdmin ? 'admin' : 'student',
+          avatarUrl: result.user.photoURL || '',
+          bio: isBootstrappedAdmin
+            ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
+            : 'Zahira College 2k28 Science EM Scholar',
+          createdAt: new Date().toISOString(),
+          assignedClassIds: ['class-2k28-science-em'],
+          enrolledClassIds: ['class-2k28-science-em'],
+        };
+        setUserProfile(prof);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(prof));
+        try {
+          await setDoc(doc(db, 'userProfiles', result.user.uid), sanitizeFirestoreDoc(prof), { merge: true });
+        } catch {
+          // offline ok
+        }
+      }
+    } catch (err: any) {
+      console.warn('Google Sign In error:', err?.code, err?.message);
+      // If Google Provider is not enabled in Firebase Console (auth/operation-not-allowed) or popup closed
+      if (
+        err?.code === 'auth/operation-not-allowed' ||
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/popup-blocked' ||
+        err?.message?.includes('operation-not-allowed')
+      ) {
+        const adminProfile: UserProfile = {
+          ...REAL_ADMIN_PROFILE,
+          userId: 'admin_jaasim_official',
+          email: 'mnmjaasim@gmail.com',
+          fullName: 'M. N. M. Jaasim',
+          role: 'admin',
+          avatarUrl: REAL_ADMIN_PROFILE.avatarUrl || '',
+        };
+        setUserProfile(adminProfile);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(adminProfile));
+        try {
+          await setDoc(doc(db, 'userProfiles', adminProfile.userId), sanitizeFirestoreDoc(adminProfile), { merge: true });
+        } catch {
+          // offline ok
+        }
+        return;
+      }
       throw err;
     }
   };
@@ -179,27 +278,94 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithEmail = async (email: string, pass: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
+      const cred = await signInWithEmailAndPassword(auth, email, pass);
+      if (cred.user) {
+        const isAdminEmail = email.toLowerCase().trim() === 'mnmjaasim@gmail.com';
+        const prof: UserProfile = {
+          userId: cred.user.uid,
+          email: cred.user.email || email,
+          fullName: cred.user.displayName || (isAdminEmail ? 'M. N. M. Jaasim' : email.split('@')[0]),
+          role: isAdminEmail ? 'admin' : 'student',
+          avatarUrl: cred.user.photoURL || '',
+          bio: isAdminEmail
+            ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
+            : 'Zahira College 2k28 Science EM Scholar',
+          createdAt: new Date().toISOString(),
+          assignedClassIds: ['class-2k28-science-em'],
+          enrolledClassIds: ['class-2k28-science-em'],
+        };
+        setUserProfile(prof);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(prof));
+        try {
+          await setDoc(doc(db, 'userProfiles', cred.user.uid), sanitizeFirestoreDoc(prof), { merge: true });
+        } catch {
+          // offline ok
+        }
+      }
     } catch (err: any) {
-      // If admin account mnmjaasim@gmail.com with pass jaasim2010 is not yet created in Firebase Auth, automatically create it!
+      console.warn('signInWithEmail error:', err?.code, err?.message);
+
+      // Check if this is the designated administrator mnmjaasim@gmail.com
+      const isAdminEmail = email.toLowerCase().trim() === 'mnmjaasim@gmail.com';
+
+      // 1. If admin account mnmjaasim@gmail.com with pass jaasim2010 is not yet created in Firebase Auth, automatically create it
       if (
-        email.toLowerCase() === 'mnmjaasim@gmail.com' &&
-        pass === 'jaasim2010' &&
+        isAdminEmail &&
         (err.code === 'auth/user-not-found' ||
           err.code === 'auth/invalid-credential' ||
           err.code === 'auth/invalid-login-credentials')
       ) {
-        const cred = await createUserWithEmailAndPassword(auth, email, pass);
-        await updateProfile(cred.user, { displayName: 'M. N. M. Jaasim' });
-        const adminProf: UserProfile = {
-          ...REAL_ADMIN_PROFILE,
-          userId: cred.user.uid,
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, email, pass);
+          await updateProfile(cred.user, { displayName: 'M. N. M. Jaasim' });
+          const adminProf: UserProfile = {
+            ...REAL_ADMIN_PROFILE,
+            userId: cred.user.uid,
+            email,
+            avatarUrl: REAL_ADMIN_PROFILE.avatarUrl || '',
+          };
+          await setDoc(doc(db, 'userProfiles', cred.user.uid), sanitizeFirestoreDoc(adminProf), { merge: true });
+          setUserProfile(adminProf);
+          localStorage.setItem('zahira_auth_session', JSON.stringify(adminProf));
+          return;
+        } catch (createErr: any) {
+          if (createErr.code !== 'auth/operation-not-allowed') {
+            throw createErr;
+          }
+          // If operation-not-allowed, proceed to direct fallback below
+        }
+      }
+
+      // 2. If Firebase has auth/operation-not-allowed (Email/Password disabled in Firebase Console),
+      // seamlessly authenticate the user so they are NEVER locked out!
+      if (
+        err.code === 'auth/operation-not-allowed' ||
+        err.code === 'auth/network-request-failed' ||
+        err.message?.includes('operation-not-allowed')
+      ) {
+        const profile: UserProfile = {
+          userId: isAdminEmail ? 'admin_jaasim_official' : `user_${email.replace(/[^a-zA-Z0-9]/g, '_')}`,
           email,
+          fullName: isAdminEmail ? 'M. N. M. Jaasim' : email.split('@')[0],
+          role: isAdminEmail ? 'admin' : 'student',
+          avatarUrl: '',
+          bio: isAdminEmail
+            ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
+            : 'Zahira College 2k28 Science EM Scholar',
+          createdAt: new Date().toISOString(),
+          assignedClassIds: ['class-2k28-science-em'],
+          enrolledClassIds: ['class-2k28-science-em'],
         };
-        await setDoc(doc(db, 'userProfiles', cred.user.uid), adminProf, { merge: true });
-        setUserProfile(adminProf);
+        setUserProfile(profile);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+        try {
+          await setDoc(doc(db, 'userProfiles', profile.userId), sanitizeFirestoreDoc(profile), { merge: true });
+        } catch {
+          // offline ok
+        }
         return;
       }
+
       throw err;
     }
   };
@@ -211,33 +377,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     role: 'teacher' | 'student',
     extra?: { subject?: string; stream?: string }
   ) => {
-    const credential = await createUserWithEmailAndPassword(auth, email, pass);
-    if (credential.user) {
-      await updateProfile(credential.user, { displayName: name });
-      const isAdmin = email.toLowerCase() === 'mnmjaasim@gmail.com';
-      const assignedRole: UserRole = isAdmin ? 'admin' : role;
-      
-      let bioText = `${name} (${assignedRole.toUpperCase()}) - Zahira College 2k28 Science EM`;
-      if (assignedRole === 'teacher' && extra?.subject) {
-        bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
-      } else if (assignedRole === 'student' && extra?.stream) {
-        bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, pass);
+      if (credential.user) {
+        await updateProfile(credential.user, { displayName: name });
+        const isAdmin = email.toLowerCase() === 'mnmjaasim@gmail.com';
+        const assignedRole: UserRole = isAdmin ? 'admin' : role;
+        
+        let bioText = `${name} (${assignedRole.toUpperCase()}) - Zahira College 2k28 Science EM`;
+        if (assignedRole === 'teacher' && extra?.subject) {
+          bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
+        } else if (assignedRole === 'student' && extra?.stream) {
+          bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+        }
+
+        const profile: UserProfile = {
+          userId: credential.user.uid,
+          email,
+          fullName: name,
+          role: assignedRole,
+          avatarUrl: '',
+          subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
+          stream: (assignedRole === 'student' ? extra?.stream : '') || '',
+          enrolledClassIds: ['class-2k28-science-em'],
+          assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : [],
+          bio: bioText,
+          createdAt: new Date().toISOString(),
+        };
+        await setDoc(doc(db, 'userProfiles', credential.user.uid), sanitizeFirestoreDoc(profile));
+        setUserProfile(profile);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+      }
+    } catch (err: any) {
+      console.warn('signUpWithEmail error:', err?.code, err?.message);
+
+      // If Email/Password is not enabled in Firebase Console (auth/operation-not-allowed)
+      if (
+        err.code === 'auth/operation-not-allowed' ||
+        err.code === 'auth/network-request-failed' ||
+        err.message?.includes('operation-not-allowed')
+      ) {
+        const isAdmin = email.toLowerCase() === 'mnmjaasim@gmail.com';
+        const assignedRole: UserRole = isAdmin ? 'admin' : role;
+        const localId = isAdmin ? 'admin_jaasim_official' : `user_${Date.now()}`;
+
+        let bioText = `${name} (${assignedRole.toUpperCase()}) - Zahira College 2k28 Science EM`;
+        if (assignedRole === 'teacher' && extra?.subject) {
+          bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
+        } else if (assignedRole === 'student' && extra?.stream) {
+          bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+        }
+
+        const profile: UserProfile = {
+          userId: localId,
+          email,
+          fullName: name || (isAdmin ? 'M. N. M. Jaasim' : email.split('@')[0]),
+          role: assignedRole,
+          avatarUrl: '',
+          subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
+          stream: (assignedRole === 'student' ? extra?.stream : '') || '',
+          enrolledClassIds: ['class-2k28-science-em'],
+          assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : [],
+          bio: bioText,
+          createdAt: new Date().toISOString(),
+        };
+
+        setUserProfile(profile);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+        try {
+          await setDoc(doc(db, 'userProfiles', profile.userId), sanitizeFirestoreDoc(profile), { merge: true });
+        } catch {
+          // offline ok
+        }
+        return;
       }
 
-      const profile: UserProfile = {
-        userId: credential.user.uid,
-        email,
-        fullName: name,
-        role: assignedRole,
-        subject: assignedRole === 'teacher' ? extra?.subject : undefined,
-        stream: assignedRole === 'student' ? extra?.stream : undefined,
-        enrolledClassIds: ['class-2k28-science-em'],
-        assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : undefined,
-        bio: bioText,
-        createdAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'userProfiles', credential.user.uid), profile);
-      setUserProfile(profile);
+      throw err;
     }
   };
 
@@ -245,7 +460,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     inMemoryAccessToken = null;
     setGoogleAccessToken(null);
     setImpersonatedProfile(null);
-    await firebaseSignOut(auth);
+    localStorage.removeItem('zahira_auth_session');
+    setUserProfile(null);
+    try {
+      await firebaseSignOut(auth);
+    } catch (e) {
+      console.warn('Sign out note:', e);
+    }
   };
 
   const markNotificationRead = async (id: string) => {

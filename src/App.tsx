@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SiteConfigProvider, useSiteConfig } from './context/SiteConfigContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { AdminDashboard } from './components/dashboards/AdminDashboard';
@@ -25,6 +26,7 @@ import { UsersAdminPage } from './pages/UsersAdminPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AuthModal } from './components/common/AuthModal';
+import { StudentAIChatWidget } from './components/common/StudentAIChatWidget';
 import { Megaphone } from 'lucide-react';
 
 const MainApp: React.FC = () => {
@@ -150,8 +152,8 @@ const MainApp: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-800 font-sans selection:bg-blue-100 selection:text-blue-900">
-      {/* Sidebar in Light Theme with Custom Scrollbar */}
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200">
+      {/* Sidebar with Dark Mode & Custom Scrollbar */}
       <Sidebar
         currentPage={currentPage}
         onNavigate={setCurrentPage}
@@ -161,10 +163,10 @@ const MainApp: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top Marquee Announcement Bar (Blue, White, Red theme) */}
+      <div className="flex flex-1 flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
+        {/* Top Marquee Announcement Bar */}
         {siteConfig.showMarquee && siteConfig.marqueeNotice && (
-          <div className="bg-blue-900 text-white px-4 py-1.5 text-xs font-semibold flex items-center justify-between border-b border-blue-950 shadow-xs z-40">
+          <div className="bg-blue-900 dark:bg-blue-950 text-white px-4 py-1.5 text-xs font-semibold flex items-center justify-between border-b border-blue-950 dark:border-slate-800 shadow-xs z-40">
             <div className="flex items-center gap-2 overflow-hidden">
               <span className="inline-flex items-center gap-1 rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shrink-0">
                 <Megaphone className="w-3 h-3" />
@@ -188,7 +190,7 @@ const MainApp: React.FC = () => {
           onNavigate={setCurrentPage}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
           <div className="mx-auto max-w-7xl pb-12">
             {renderCurrentPage()}
           </div>
@@ -200,16 +202,21 @@ const MainApp: React.FC = () => {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
       />
+
+      {/* Floating AI Chat Widget (Bottom Right) */}
+      <StudentAIChatWidget onNavigate={setCurrentPage} />
     </div>
   );
 };
 
 export default function App() {
   return (
-    <AuthProvider>
-      <SiteConfigProvider>
-        <MainApp />
-      </SiteConfigProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <SiteConfigProvider>
+          <MainApp />
+        </SiteConfigProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

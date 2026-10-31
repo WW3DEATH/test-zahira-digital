@@ -32,7 +32,7 @@ import {
   deleteDoc,
   addDoc,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useSiteConfig } from '../context/SiteConfigContext';
 import {
   SchoolSetting,
@@ -206,10 +206,11 @@ export const AdminMasterControlPage: React.FC = () => {
   // 4. User Actions
   const handleSaveUser = async () => {
     if (!editingUser?.userId || !editingUser?.email) return;
-    const payload = {
+    const payload = sanitizeFirestoreDoc({
       ...editingUser,
+      avatarUrl: editingUser.avatarUrl || '',
       updatedAt: new Date().toISOString(),
-    };
+    });
     await setDoc(doc(db, 'userProfiles', editingUser.userId), payload, { merge: true });
     setEditingUser(null);
     triggerNotice(`User "${editingUser.fullName}" updated!`);

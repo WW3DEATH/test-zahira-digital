@@ -1,13 +1,50 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 const customDbId = (firebaseConfig as any).firestoreDatabaseId;
-export const db = customDbId && customDbId !== '(default)'
-  ? getFirestore(app, customDbId)
-  : getFirestore(app);
+
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(
+    app,
+    {
+      experimentalAutoDetectLongPolling: true,
+      ignoreUndefinedProperties: true,
+    },
+    customDbId && customDbId !== '(default)' ? customDbId : undefined
+  );
+} catch (e) {
+  firestoreDb = customDbId && customDbId !== '(default)'
+    ? getFirestore(app, customDbId)
+    : getFirestore(app);
+}
+
+/**
+ * Recursively strips undefined values from an object or array so Firestore operations never reject data with "Unsupported field value: undefined".
+ */
+export function sanitizeFirestoreDoc<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj
+      .map((item) => sanitizeFirestoreDoc(item))
+      .filter((x) => x !== undefined) as unknown as T;
+  }
+  if (typeof obj === 'object' && !(obj instanceof Date)) {
+    const sanitized: Record<string, any> = {};
+    for (const [key, val] of Object.entries(obj as Record<string, any>)) {
+      if (val !== undefined) {
+        sanitized[key] = sanitizeFirestoreDoc(val);
+      }
+    }
+    return sanitized as T;
+  }
+  return obj;
+}
+
+export const db = firestoreDb;
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -53,18 +90,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.warn('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
-
-export async function testFirestoreConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is offline. Please check your Firebase configuration.');
-    }
-  }
-}
-
-testFirestoreConnection();

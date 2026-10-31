@@ -194,7 +194,7 @@ export const AssessmentsPage: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
       doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE - 2K28 SCIENCE EM', 20, 22);
+      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
@@ -290,11 +290,16 @@ export const AssessmentsPage: React.FC = () => {
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-900">
-            Examinations, Marks & Report Cards
-          </h2>
-          <p className="text-xs text-stone-500 mt-1">
-            Zahira College 2k28 Science EM assessment records, live grade book, and certified PDF report cards
+          <div className="flex items-center gap-2">
+            <h2 className="font-serif text-2xl font-bold tracking-tight text-slate-900">
+              Examinations, Marks & Report Cards
+            </h2>
+            <span className="rounded-full bg-blue-100 text-blue-700 px-3 py-0.5 text-[11px] font-bold border border-blue-200">
+              Zahira College Mawanella
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            2k28 Science EM assessment records, live grade book, and certified PDF report cards
           </p>
         </div>
 
@@ -302,31 +307,31 @@ export const AssessmentsPage: React.FC = () => {
           {activeRole !== 'student' && activeRole !== 'parent' && (
             <button
               onClick={() => setShowCreateTestModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2 text-xs font-bold text-stone-950 transition-all shadow-md shrink-0"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 transition-all shadow-2xs shrink-0"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 text-blue-600" />
               <span>Schedule Examination</span>
             </button>
           )}
 
           <button
             onClick={handleExportPDF}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 px-4 py-2 text-xs font-bold text-white transition-all shadow-md shrink-0"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md shrink-0"
           >
-            <Download className="w-4 h-4 text-amber-400" />
-            <span>Download Official PDF Report</span>
+            <Download className="w-4 h-4 text-white" />
+            <span>Export Report Card (PDF)</span>
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-stone-200 pb-2 text-xs font-semibold">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold">
         <button
           onClick={() => setActiveTab('report_card')}
           className={`rounded-lg px-4 py-2 transition-colors ${
             activeTab === 'report_card'
-              ? 'bg-stone-900 text-white shadow-2xs'
-              : 'text-stone-600 hover:bg-stone-100'
+              ? 'bg-blue-600 text-white shadow-2xs font-bold'
+              : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           Official Report Card
@@ -335,8 +340,8 @@ export const AssessmentsPage: React.FC = () => {
           onClick={() => setActiveTab('tests')}
           className={`rounded-lg px-4 py-2 transition-colors ${
             activeTab === 'tests'
-              ? 'bg-stone-900 text-white shadow-2xs'
-              : 'text-stone-600 hover:bg-stone-100'
+              ? 'bg-blue-600 text-white shadow-2xs font-bold'
+              : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           Scheduled Examinations & Tests ({tests.length})
