@@ -14,6 +14,11 @@ import {
   User,
   ArrowRight,
   Download,
+  Upload,
+  Paperclip,
+  File,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
@@ -21,6 +26,7 @@ import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { Assignment, Submission, SubmissionStatus } from '../types';
 import { SEED_ASSIGNMENTS, SEED_SUBMISSIONS } from '../services/dataService';
+import { broadcastSystemNotification } from '../services/notificationService';
 
 export const AssignmentsPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -32,6 +38,18 @@ export const AssignmentsPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedAssignmentForSubmit, setSelectedAssignmentForSubmit] = useState<Assignment | null>(null);
   const [studentContent, setStudentContent] = useState('');
+  
+  // Student PDF Coursework Upload
+  const [submissionPdfFile, setSubmissionPdfFile] = useState<File | null>(null);
+  const [submissionPdfBase64, setSubmissionPdfBase64] = useState<string | null>(null);
+  const [submissionPdfError, setSubmissionPdfError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Teacher Assignment Question Paper PDF Upload
+  const [assignmentPdfFile, setAssignmentPdfFile] = useState<File | null>(null);
+  const [assignmentPdfBase64, setAssignmentPdfBase64] = useState<string | null>(null);
+  const [assignmentPdfError, setAssignmentPdfError] = useState<string | null>(null);
+  const [isPublishingAssignment, setIsPublishingAssignment] = useState(false);
 
   // Grading Modal
   const [gradingSubmission, setGradingSubmission] = useState<{
@@ -97,9 +115,97 @@ export const AssignmentsPage: React.FC = () => {
     return () => unsub();
   }, []);
 
+  const handleStudentFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSubmissionPdfError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+    if (file.size > MAX_SIZE) {
+      setSubmissionPdfError(
+        `File exceeds the 10 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a PDF smaller than 10 MB.`
+      );
+      setSubmissionPdfFile(null);
+      setSubmissionPdfBase64(null);
+      return;
+    }
+
+    setSubmissionPdfFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSubmissionPdfBase64(reader.result as string);
+    };
+    reader.onerror = () => {
+      setSubmissionPdfError('Failed to read document from your device. Please try again.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAssignmentFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAssignmentPdfError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+    if (file.size > MAX_SIZE) {
+      setAssignmentPdfError(
+        `File exceeds the 10 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a PDF smaller than 10 MB.`
+      );
+      setAssignmentPdfFile(null);
+      setAssignmentPdfBase64(null);
+      return;
+    }
+
+    setAssignmentPdfFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAssignmentPdfBase64(reader.result as string);
+    };
+    reader.onerror = () => {
+      setAssignmentPdfError('Failed to read document from your device. Please try again.');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleCreateAssignment = async () => {
     if (!newTitle.trim()) return;
     try {
+      setIsPublishingAssignment(true);
+      setAssignmentPdfError(null);
+
+      let finalFileUrl: string | undefined = undefined;
+      let finalFileName: string | undefined = undefined;
+      let finalFileSize: string | undefined = undefined;
+
+      if (assignmentPdfFile && assignmentPdfBase64) {
+        try {
+          const res = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: assignmentPdfFile.name,
+              fileData: assignmentPdfBase64,
+              fileType: assignmentPdfFile.type || 'application/pdf',
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            finalFileUrl = data.url;
+            finalFileName = data.filename || assignmentPdfFile.name;
+            finalFileSize = data.size || `${(assignmentPdfFile.size / (1024 * 1024)).toFixed(2)} MB`;
+          } else {
+            finalFileUrl = assignmentPdfBase64;
+            finalFileName = assignmentPdfFile.name;
+            finalFileSize = `${(assignmentPdfFile.size / (1024 * 1024)).toFixed(2)} MB`;
+          }
+        } catch (uploadErr) {
+          console.warn('Backend assignment upload fallback to dataUrl:', uploadErr);
+          finalFileUrl = assignmentPdfBase64;
+          finalFileName = assignmentPdfFile.name;
+          finalFileSize = `${(assignmentPdfFile.size / (1024 * 1024)).toFixed(2)} MB`;
+        }
+      }
+
       const id = `assign-${Date.now()}`;
       const newAssign: Assignment = {
         id,
@@ -112,22 +218,79 @@ export const AssignmentsPage: React.FC = () => {
         dueDate: `${newDueDate}T23:59:00.000Z`,
         maxMarks: newMaxMarks,
         rubric: newRubric,
+        fileUrl: finalFileUrl,
+        fileName: finalFileName,
+        fileSize: finalFileSize,
         createdAt: new Date().toISOString(),
       };
 
       await setDoc(doc(db, 'assignments', id), newAssign);
+      await broadcastSystemNotification({
+        title: 'New Coursework Assignment',
+        message: `"${newAssign.title}" is published for 2k28 Science EM. Due: ${new Date(newAssign.dueDate).toLocaleDateString()}.`,
+        type: 'assignment',
+        link: 'assignments',
+      });
+
       setShowCreateModal(false);
       setNewTitle('');
       setNewDesc('');
       setNewInstructions('');
-    } catch (e) {
+      setAssignmentPdfFile(null);
+      setAssignmentPdfBase64(null);
+      setAssignmentPdfError(null);
+    } catch (e: any) {
       console.error('Failed to create assignment:', e);
+      setAssignmentPdfError(e.message || 'Failed to create assignment.');
+    } finally {
+      setIsPublishingAssignment(false);
     }
   };
 
   const handleStudentSubmit = async () => {
-    if (!selectedAssignmentForSubmit || !studentContent.trim()) return;
+    if (!selectedAssignmentForSubmit) return;
+    if (!studentContent.trim() && !submissionPdfFile) {
+      setSubmissionPdfError('Please provide either written coursework text or attach a PDF file from your device.');
+      return;
+    }
+
     try {
+      setIsSubmitting(true);
+      setSubmissionPdfError(null);
+
+      let finalFileUrl: string | undefined = undefined;
+      let finalFileName: string | undefined = undefined;
+      let finalFileSize: string | undefined = undefined;
+
+      if (submissionPdfFile && submissionPdfBase64) {
+        try {
+          const res = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: submissionPdfFile.name,
+              fileData: submissionPdfBase64,
+              fileType: submissionPdfFile.type || 'application/pdf',
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            finalFileUrl = data.url;
+            finalFileName = data.filename || submissionPdfFile.name;
+            finalFileSize = data.size || `${(submissionPdfFile.size / (1024 * 1024)).toFixed(2)} MB`;
+          } else {
+            finalFileUrl = submissionPdfBase64;
+            finalFileName = submissionPdfFile.name;
+            finalFileSize = `${(submissionPdfFile.size / (1024 * 1024)).toFixed(2)} MB`;
+          }
+        } catch (uploadErr) {
+          console.warn('Backend student submission fallback to dataUrl:', uploadErr);
+          finalFileUrl = submissionPdfBase64;
+          finalFileName = submissionPdfFile.name;
+          finalFileSize = `${(submissionPdfFile.size / (1024 * 1024)).toFixed(2)} MB`;
+        }
+      }
+
       const subId = `subm-${Date.now()}`;
       const newSub: Submission = {
         id: subId,
@@ -135,16 +298,33 @@ export const AssignmentsPage: React.FC = () => {
         studentId: userProfile?.userId || 'student_user',
         studentName: userProfile?.fullName || 'Zahira Student Scholar',
         classId: selectedAssignmentForSubmit.classId,
-        content: studentContent,
+        content: studentContent.trim() || `Coursework submitted via PDF document: ${finalFileName || 'Coursework Solution.pdf'}`,
+        fileUrl: finalFileUrl,
+        fileName: finalFileName,
+        fileSize: finalFileSize,
         status: 'submitted',
         submittedAt: new Date().toISOString(),
       };
 
       await setDoc(doc(db, 'submissions', subId), newSub);
+      await broadcastSystemNotification({
+        title: 'New Student Submission Received',
+        message: `${newSub.studentName} submitted coursework for "${selectedAssignmentForSubmit.title}".`,
+        type: 'assignment',
+        link: 'assignments',
+        audience: 'teachers',
+      });
+
       setSelectedAssignmentForSubmit(null);
       setStudentContent('');
-    } catch (e) {
+      setSubmissionPdfFile(null);
+      setSubmissionPdfBase64(null);
+      setSubmissionPdfError(null);
+    } catch (e: any) {
       console.error('Failed to submit assignment:', e);
+      setSubmissionPdfError(e.message || 'Submission failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -531,6 +711,19 @@ export const AssignmentsPage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {assign.fileUrl && (
+                      <a
+                        href={assign.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/90 hover:bg-blue-100 px-3 py-1.5 text-[11px] font-bold text-blue-800 transition-colors shadow-2xs"
+                        title="Open / Download Teacher's Question Paper PDF"
+                      >
+                        <Paperclip className="w-3 h-3 text-blue-700" />
+                        <span>Question Paper ({assign.fileSize || 'PDF'})</span>
+                      </a>
+                    )}
+
                     <button
                       onClick={() => handleExportSingleAssignmentPDF(assign)}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-700 transition-colors shadow-2xs"
@@ -543,18 +736,38 @@ export const AssignmentsPage: React.FC = () => {
                     {activeRole === 'student' && (
                       <div>
                         {userSub ? (
-                          <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            <span>Status: {userSub.status.toUpperCase()}</span>
-                            {userSub.marksObtained !== undefined && (
-                              <span className="ml-1 text-emerald-950 font-bold">
-                                ({userSub.marksObtained}/{assign.maxMarks})
-                              </span>
+                          <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs text-emerald-800 font-semibold flex items-center gap-2 flex-wrap">
+                            <span className="flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              <span>Status: {userSub.status.toUpperCase()}</span>
+                              {userSub.marksObtained !== undefined && (
+                                <span className="ml-1 text-emerald-950 font-bold">
+                                  ({userSub.marksObtained}/{assign.maxMarks})
+                                </span>
+                              )}
+                            </span>
+
+                            {userSub.fileUrl && (
+                              <a
+                                href={userSub.fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-900 underline hover:text-emerald-950 ml-1 bg-emerald-100/70 px-2 py-0.5 rounded"
+                                title="View your uploaded PDF submission"
+                              >
+                                <Paperclip className="w-3 h-3 text-emerald-700" />
+                                <span>View Uploaded PDF ({userSub.fileSize || 'Attached'})</span>
+                              </a>
                             )}
                           </div>
                         ) : (
                           <button
-                            onClick={() => setSelectedAssignmentForSubmit(assign)}
+                            onClick={() => {
+                              setSelectedAssignmentForSubmit(assign);
+                              setSubmissionPdfFile(null);
+                              setSubmissionPdfBase64(null);
+                              setSubmissionPdfError(null);
+                            }}
                             className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-semibold text-white transition-colors shadow-xs"
                           >
                             <Send className="w-3.5 h-3.5 text-white" />
@@ -590,7 +803,20 @@ export const AssignmentsPage: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          {sub.fileUrl && (
+                            <a
+                              href={sub.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-800 hover:bg-blue-100 transition-colors"
+                              title="View student's uploaded PDF file"
+                            >
+                              <Paperclip className="w-3 h-3 text-blue-700" />
+                              <span>Student PDF ({sub.fileSize || 'Attached'})</span>
+                            </a>
+                          )}
+
                           <span
                             className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
                               sub.status === 'graded'
@@ -649,6 +875,33 @@ export const AssignmentsPage: React.FC = () => {
                 <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 whitespace-pre-wrap font-mono text-[11px] text-stone-800 leading-relaxed">
                   {gradingSubmission.submission.content}
                 </div>
+
+                {gradingSubmission.submission.fileUrl && (
+                  <div className="mt-3 p-3.5 rounded-xl border border-blue-200 bg-blue-50/70 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-blue-950 text-xs">
+                          {gradingSubmission.submission.fileName || 'Student Coursework Submission.pdf'}
+                        </p>
+                        <p className="text-[11px] text-blue-700">
+                          {gradingSubmission.submission.fileSize || 'PDF Document'} • Uploaded directly from student device
+                        </p>
+                      </div>
+                    </div>
+                    <a
+                      href={gradingSubmission.submission.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold transition-colors shadow-2xs shrink-0"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View PDF</span>
+                    </a>
+                  </div>
+                )}
               </div>
 
               {/* Gemini AI Grading Suggestions Section */}
@@ -782,15 +1035,86 @@ export const AssignmentsPage: React.FC = () => {
                 {selectedAssignmentForSubmit.instructions}
               </div>
 
+              {/* Direct PDF Upload from Device (Max 10 MB) */}
+              <div>
+                <label className="font-semibold text-stone-800 uppercase tracking-wider block mb-1.5 text-[11px] flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Upload Solution PDF From Device (Max 10 MB)</span>
+                </label>
+
+                <label
+                  htmlFor="student-pdf-upload"
+                  className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
+                    submissionPdfFile
+                      ? 'border-emerald-300 bg-emerald-50/50'
+                      : 'border-stone-300 bg-stone-50/70 hover:bg-stone-100 hover:border-stone-400'
+                  }`}
+                >
+                  <input
+                    id="student-pdf-upload"
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={handleStudentFileSelect}
+                    className="hidden"
+                  />
+
+                  {submissionPdfFile ? (
+                    <div className="flex items-center gap-3 text-left w-full">
+                      <div className="h-10 w-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                        <File className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-emerald-950 text-xs truncate">{submissionPdfFile.name}</p>
+                        <p className="text-[11px] text-emerald-700">
+                          {(submissionPdfFile.size / (1024 * 1024)).toFixed(2)} MB • Verified under 10 MB limit
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSubmissionPdfFile(null);
+                          setSubmissionPdfBase64(null);
+                        }}
+                        className="p-1 rounded-lg hover:bg-emerald-200 text-emerald-800"
+                        title="Remove attached file"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="h-9 w-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center mx-auto mb-1">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <p className="font-bold text-stone-900 text-xs">
+                        Select PDF coursework from your device
+                      </p>
+                      <p className="text-[11px] text-stone-500">
+                        Direct upload without external URLs • Maximum file size: 10 MB
+                      </p>
+                    </div>
+                  )}
+                </label>
+
+                {submissionPdfError && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2 text-red-700 text-[11px]">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{submissionPdfError}</span>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1.5 text-[11px]">
-                  Your Analytical Solution / Derivations Work
+                  Written Solution / Analytical Comments (Optional if PDF is attached)
                 </label>
                 <textarea
-                  rows={8}
+                  rows={4}
                   value={studentContent}
                   onChange={(e) => setStudentContent(e.target.value)}
-                  placeholder="Type your complete solution, mathematical derivations, or essay analysis..."
+                  placeholder="Type notes, formulas, or explanation accompanying your submission..."
                   className="w-full rounded-xl border border-stone-300 p-3 text-xs text-stone-900 font-mono focus:border-stone-900 focus:outline-none"
                 />
               </div>
@@ -798,18 +1122,33 @@ export const AssignmentsPage: React.FC = () => {
 
             <div className="mt-6 flex justify-end gap-2">
               <button
-                onClick={() => setSelectedAssignmentForSubmit(null)}
-                className="rounded-lg border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-50"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setSelectedAssignmentForSubmit(null);
+                  setSubmissionPdfFile(null);
+                  setSubmissionPdfBase64(null);
+                  setSubmissionPdfError(null);
+                }}
+                className="rounded-lg border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleStudentSubmit}
-                disabled={!studentContent.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-4 py-2 text-xs font-bold text-white hover:bg-stone-800 disabled:opacity-50 shadow-xs"
+                disabled={isSubmitting || (!studentContent.trim() && !submissionPdfFile)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-stone-800 disabled:opacity-50 shadow-xs transition-colors"
               >
-                <Send className="w-3.5 h-3.5 text-amber-400" />
-                <span>Submit Solution</span>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>Uploading (Max 10MB)...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Submit Solution</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -904,20 +1243,106 @@ export const AssignmentsPage: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Attach Question Paper PDF (Device Upload, Max 10 MB) */}
+              <div>
+                <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1.5 text-[11px] flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Attach Question Paper PDF (Optional • Max 10 MB limit)</span>
+                </label>
+
+                <label
+                  htmlFor="assignment-pdf-upload"
+                  className={`border-2 border-dashed rounded-xl p-3 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
+                    assignmentPdfFile
+                      ? 'border-blue-300 bg-blue-50/50'
+                      : 'border-stone-300 bg-stone-50/70 hover:bg-stone-100 hover:border-stone-400'
+                  }`}
+                >
+                  <input
+                    id="assignment-pdf-upload"
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={handleAssignmentFileSelect}
+                    className="hidden"
+                  />
+
+                  {assignmentPdfFile ? (
+                    <div className="flex items-center gap-3 text-left w-full">
+                      <div className="h-9 w-9 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <File className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-blue-950 text-xs truncate">{assignmentPdfFile.name}</p>
+                        <p className="text-[11px] text-blue-700">
+                          {(assignmentPdfFile.size / (1024 * 1024)).toFixed(2)} MB • Verified under 10 MB limit
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setAssignmentPdfFile(null);
+                          setAssignmentPdfBase64(null);
+                        }}
+                        className="p-1 rounded-lg hover:bg-blue-200 text-blue-800"
+                        title="Remove file"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-stone-800 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Select PDF question paper from your device</span>
+                      </p>
+                      <p className="text-[10px] text-stone-500">
+                        Uploads directly without requiring URL • Maximum size: 10 MB
+                      </p>
+                    </div>
+                  )}
+                </label>
+
+                {assignmentPdfError && (
+                  <div className="mt-2 p-2 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2 text-red-700 text-[11px]">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{assignmentPdfError}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
               <button
-                onClick={() => setShowCreateModal(false)}
-                className="rounded-lg border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-50"
+                disabled={isPublishingAssignment}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setAssignmentPdfFile(null);
+                  setAssignmentPdfBase64(null);
+                  setAssignmentPdfError(null);
+                }}
+                className="rounded-lg border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateAssignment}
-                className="rounded-lg bg-stone-900 px-5 py-2 text-xs font-bold text-white hover:bg-stone-800 shadow-xs"
+                disabled={isPublishingAssignment || !newTitle.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-stone-800 disabled:opacity-50 shadow-xs transition-colors"
               >
-                Publish Assignment
+                {isPublishingAssignment ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>Publishing & Uploading PDF...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Publish Assignment</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

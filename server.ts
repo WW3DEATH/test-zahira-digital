@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 
@@ -10,7 +11,58 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
+
+// Uploads directory for PDFs uploaded directly from user devices
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
+// PDF & Document Device Direct Upload Endpoint (Max 10MB Limit)
+app.post('/api/upload', (req, res) => {
+  try {
+    const { filename, fileData, fileType } = req.body;
+    if (!fileData) {
+      return res.status(400).json({ error: 'No file data received' });
+    }
+
+    // Extract base64 payload
+    const base64Data = fileData.replace(/^data:.*?;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Strict 10MB limit enforcement
+    const MAX_BYTES = 10 * 1024 * 1024; // 10 MB in bytes
+    if (buffer.length > MAX_BYTES) {
+      return res.status(400).json({
+        error: `File size exceeds the 10MB limit (${(buffer.length / (1024 * 1024)).toFixed(2)} MB uploaded). Please select a file under 10MB.`,
+      });
+    }
+
+    const ext = path.extname(filename || '') || '.pdf';
+    const cleanBase = path.basename(filename || 'document', ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeName = `${cleanBase}_${Date.now()}${ext}`;
+    const filePath = path.join(uploadsDir, safeName);
+
+    fs.writeFileSync(filePath, buffer);
+
+    const publicUrl = `/uploads/${safeName}`;
+    const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
+
+    res.json({
+      url: publicUrl,
+      filename: filename || safeName,
+      size: `${sizeInMB} MB`,
+      fileType: fileType || 'application/pdf',
+      dataUrl: fileData,
+    });
+  } catch (error: any) {
+    console.error('File Upload Error:', error);
+    res.status(500).json({ error: error.message || 'File upload failed' });
+  }
+});
 
 // Shared Gemini AI client with telemetry header
 const ai = new GoogleGenAI({
@@ -393,6 +445,152 @@ YOUR MISSION:
   } catch (error: any) {
     console.error('Student Assistant Error:', error);
     res.status(500).json({ error: error.message || 'Student Assistant service error' });
+  }
+});
+
+// 8. Gemini AI-Driven Personalized Study Planner with Science Skills Integration
+app.post('/api/gemini/study-planner', async (req, res) => {
+  try {
+    const {
+      studentName,
+      stream,
+      upcomingAssignments,
+      testMarks,
+      weakTopics,
+      availableHoursPerDay,
+      preferredFocus,
+    } = req.body;
+
+    const streamLabel = stream || '2k28 Science EM (Bioscience / Physical Science)';
+    const hours = availableHoursPerDay || 3.5;
+
+    const assignmentsSummary = (upcomingAssignments || []).map((a: any, idx: number) => {
+      const isUrgent = a.isUrgent ? ' [CRITICAL DEADLINE < 24H]' : '';
+      return `${idx + 1}. "${a.title}" (${a.subject}) - Due: ${a.dueDate}${isUrgent} (Max Marks: ${a.maxMarks || 50})`;
+    }).join('\n') || 'No pending assignments.';
+
+    const performanceSummary = (testMarks || []).map((m: any) => {
+      return `- ${m.subject || 'Subject'}: ${m.marksObtained}/${m.maxMarks} (${Math.round((m.marksObtained / m.maxMarks) * 100)}%)`;
+    }).join('\n') || '- Combined Mathematics: 94%\n- Physics: 91%\n- Chemistry: 95%\n- Biology / ICT: 92%';
+
+    const prompt = `You are the Master Academic Strategist and Senior Science Curriculum Specialist for Zahira College Mawanella (G.C.E. Advanced Level 2k28 Science English Medium).
+Generate a personalized, high-yield 7-day science study timetable and revision roadmap for student: "${studentName || 'Scholar'}".
+
+Student Academic Stream: ${streamLabel}
+Weekly Study Capacity: ${hours} hours/day
+Student's Current Performance:
+${performanceSummary}
+
+Active Coursework & Deadlines:
+${assignmentsSummary}
+
+Student Weak Topics or Specific Focus: ${weakTopics || preferredFocus || 'Exam-focused mastery and prompt assignment completion'}
+
+CRITICAL SCIENCE SKILL GUIDELINES:
+1. Deadlines < 24 hours MUST be allocated immediate high-priority study/work blocks in Day 1 & Day 2 to guarantee timely submission and early-bird badges.
+2. In accordance with Google DeepMind Science Skills:
+   - For Bioscience & Biology blocks, integrate authentic biological references from AlphaFold DB (e.g. UniProt accessions like P04637 for p53 tumor suppressor, P02042 for Hemoglobin, P00520 for ABL1 kinase, P01308 for Insulin) or Reactome pathway IDs (e.g. R-HSA-70326 Glucose metabolism, R-HSA-611105 Cellular Respiration).
+   - For Chemistry blocks, incorporate PubChem identifiers (e.g. CID 280 for Carbon Dioxide, CID 962 for Water, CID 243 for Benzoic acid, CID 297 for Methane) or reaction stoichiometry references.
+   - For Physics & Combined Mathematics, structure rigorous analytical problem sets (differentiation, integration, Newton laws of motion, kinematics, vectors).
+3. Provide spaced repetition, active recall pomodoros (45 to 90 min blocks), and precise learning objectives for each session.
+
+Provide your response as a valid JSON object matching the required schema.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: `You are the Zahira College 2k28 Science EM AI Study Planner powered by Google DeepMind Science Skills.
+You synthesize academic deadlines, performance analytics, and authoritative scientific databases (AlphaFold DB, UniProt, Reactome, PubChem) into actionable daily study blocks.`,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            weeklyGoal: { type: Type.STRING },
+            performanceDiagnosis: { type: Type.STRING },
+            targetExam: { type: Type.STRING },
+            overallReadinessScore: { type: Type.NUMBER },
+            scheduleBlocks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  day: { type: Type.STRING },
+                  timeSlot: { type: Type.STRING },
+                  durationMinutes: { type: Type.NUMBER },
+                  subject: { type: Type.STRING },
+                  topic: { type: Type.STRING },
+                  urgency: { type: Type.STRING },
+                  linkedAssignmentId: { type: Type.STRING },
+                  linkedDeadline: { type: Type.STRING },
+                  objectives: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                  scienceReference: {
+                    type: Type.OBJECT,
+                    properties: {
+                      database: { type: Type.STRING },
+                      accessionOrId: { type: Type.STRING },
+                      name: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      link: { type: Type.STRING },
+                      plddtConfidence: { type: Type.STRING },
+                    },
+                    required: ['database', 'accessionOrId', 'name', 'description', 'link'],
+                  },
+                  completed: { type: Type.BOOLEAN },
+                  notes: { type: Type.STRING },
+                },
+                required: ['id', 'day', 'timeSlot', 'durationMinutes', 'subject', 'topic', 'urgency', 'objectives', 'completed'],
+              },
+            },
+            bioscienceKeyConcepts: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  concept: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  databaseRef: { type: Type.STRING },
+                  link: { type: Type.STRING },
+                },
+                required: ['concept', 'description', 'databaseRef', 'link'],
+              },
+            },
+          },
+          required: ['weeklyGoal', 'performanceDiagnosis', 'targetExam', 'overallReadinessScore', 'scheduleBlocks', 'bioscienceKeyConcepts'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    res.json(parsed);
+  } catch (error: any) {
+    console.error('Study Planner Generation Error:', error);
+    res.status(500).json({ error: error.message || 'AI Study Planner generation failed' });
+  }
+});
+
+// 9. Science Skills: AlphaFold Protein Prediction Metadata Proxy
+app.get('/api/science/alphafold/:accession', async (req, res) => {
+  try {
+    const { accession } = req.params;
+    const url = `https://alphafold.ebi.ac.uk/api/prediction/${encodeURIComponent(accession)}`;
+    const upstream = await fetch(url, {
+      headers: { 'User-Agent': 'ZahiraCollege-ScienceEM-Portal' },
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: `AlphaFold API error: ${upstream.statusText}` });
+    }
+
+    const data = await upstream.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error('AlphaFold Proxy Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to query AlphaFold DB' });
   }
 });
 

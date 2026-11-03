@@ -1,7 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, getFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+
+// Silence non-fatal backend connection/offline warnings
+setLogLevel('error');
 
 const app = initializeApp(firebaseConfig);
 const customDbId = (firebaseConfig as any).firestoreDatabaseId;
@@ -11,7 +14,7 @@ try {
   firestoreDb = initializeFirestore(
     app,
     {
-      experimentalAutoDetectLongPolling: true,
+      experimentalForceLongPolling: true,
       ignoreUndefinedProperties: true,
     },
     customDbId && customDbId !== '(default)' ? customDbId : undefined

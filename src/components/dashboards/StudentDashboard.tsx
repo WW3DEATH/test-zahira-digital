@@ -19,6 +19,14 @@ import {
   AlertCircle,
   Activity,
   Layers,
+  BellRing,
+  AlertTriangle,
+  Timer,
+  Bell,
+  MessageSquare,
+  QrCode,
+  Camera,
+  Dna,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -39,12 +47,22 @@ import {
 } from 'recharts';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { Assignment, Quiz, TestMark, Submission, AttendanceRecord, QuizAttempt } from '../../types';
+import { Assignment, Quiz, TestMark, Submission, AttendanceRecord, QuizAttempt, Discussion, DiscussionReply } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { SEED_ASSIGNMENTS, SEED_SUBMISSIONS, SEED_TESTS, SEED_ATTENDANCE } from '../../services/dataService';
+import {
+  SEED_ASSIGNMENTS,
+  SEED_SUBMISSIONS,
+  SEED_TESTS,
+  SEED_ATTENDANCE,
+  SEED_DISCUSSIONS,
+  SEED_DISCUSSION_REPLIES,
+} from '../../services/dataService';
 import { calculateStudentBadges } from '../../services/badgeService';
 import { StudentBadgeSection } from '../common/StudentBadgeSection';
+import { checkUpcomingDeadlinesAndNotify, requestNotificationPermission } from '../../services/notificationService';
+import { QRAttendanceModal } from '../attendance/QRAttendanceModal';
+import { AIStudyPlannerModal } from '../study/AIStudyPlannerModal';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
@@ -63,8 +81,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [marks, setMarks] = useState<TestMark[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(SEED_ATTENDANCE);
   const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>([]);
+  const [discussions, setDiscussions] = useState<Discussion[]>(SEED_DISCUSSIONS);
+  const [discussionReplies, setDiscussionReplies] = useState<DiscussionReply[]>(SEED_DISCUSSION_REPLIES);
   const [loading, setLoading] = useState(true);
   const [selectedTerm, setSelectedTerm] = useState<'term1' | 'term2' | 'all'>('term1');
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
+  );
+  const [showQRScanModal, setShowQRScanModal] = useState(false);
+  const [showStudyPlanner, setShowStudyPlanner] = useState(false);
 
   // Real-time synchronization
   useEffect(() => {
@@ -98,6 +123,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       setQuizAttempts(list);
     });
 
+    const unsubDiscussions = onSnapshot(collection(db, 'discussions'), (snap) => {
+      const list: Discussion[] = [];
+      snap.forEach((d) => list.push(d.data() as Discussion));
+      if (list.length > 0) setDiscussions(list);
+    });
+
+    const unsubReplies = onSnapshot(collection(db, 'discussionReplies'), (snap) => {
+      const list: DiscussionReply[] = [];
+      snap.forEach((d) => list.push(d.data() as DiscussionReply));
+      if (list.length > 0) setDiscussionReplies(list);
+    });
+
     const unsubMarks = onSnapshot(collection(db, 'testMarks'), (snap) => {
       const list: TestMark[] = [];
       snap.forEach((d) => list.push(d.data() as TestMark));
@@ -111,9 +148,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       unsubQuizzes();
       unsubAttendance();
       unsubAttempts();
+      unsubDiscussions();
+      unsubReplies();
       unsubMarks();
     };
   }, [userProfile?.userId]);
+
+  // Check for upcoming deadlines (<24h) and trigger desktop notification
+  useEffect(() => {
+    if (assignments.length > 0 && userProfile?.userId) {
+      checkUpcomingDeadlinesAndNotify(assignments, submissions, userProfile.userId);
+    }
+  }, [assignments, submissions, userProfile?.userId]);
+
+  const handleRequestPermission = async () => {
+    const res = await requestNotificationPermission();
+    setBrowserPermission(res);
+  };
 
   const badgeSummary = calculateStudentBadges({
     studentId: userProfile?.userId || 'student_scholar',
@@ -121,6 +172,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     quizAttempts,
     attendanceRecords: attendance,
     totalAssignmentsCount: assignments.length,
+    assignments,
+    discussions,
+    discussionReplies,
+  });
+
+  const now = Date.now();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const myCompletedSet = new Set(
+    submissions.filter((s) => s.studentId === userProfile?.userId).map((s) => s.assignmentId)
+  );
+
+  // Urgent assignments due in 24 hours that student has not yet submitted
+  const urgentAssignments = assignments.filter((a) => {
+    if (myCompletedSet.has(a.id)) return false;
+    const dueTime = new Date(a.dueDate).getTime();
+    const diff = dueTime - now;
+    return diff > -2 * 60 * 60 * 1000 && diff <= oneDayMs; // Due within 24h or recently due in last 2h
   });
 
   const upcomingAssignments = assignments.slice(0, 3);
@@ -203,22 +271,123 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
+              onClick={() => setShowQRScanModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-3 text-xs font-bold text-white transition-all shadow-md shrink-0"
+              title="Scan classroom attendance QR code projected in Hall 28"
+            >
+              <Camera className="w-4 h-4 text-white" />
+              <span>Scan Classroom QR</span>
+            </button>
+            <button
+              onClick={() => setShowStudyPlanner(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-3 text-xs font-bold text-white transition-all shadow-md shrink-0"
+              title="Generate personalized science study schedule based on deadlines & performance"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>AI Science Study Planner</span>
+            </button>
+            <button
               onClick={() => onNavigate('assignments')}
-              className="inline-flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-3 text-xs font-semibold text-white transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-3.5 py-3 text-xs font-semibold text-white transition-colors"
             >
               <FileCheck2 className="w-4 h-4" />
               <span>View Coursework</span>
             </button>
             <button
               onClick={() => onNavigate('tutor')}
-              className="inline-flex items-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-5 py-3 text-xs font-bold text-white transition-all shadow-md shrink-0"
+              className="inline-flex items-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-3 text-xs font-bold text-white transition-all shadow-md shrink-0"
             >
               <Lightbulb className="w-4 h-4 text-white" />
-              <span>Launch Socrates AI Tutor</span>
+              <span>Socrates AI Tutor</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* URGENT 24-HOUR DEADLINE NOTIFICATION BANNER */}
+      {urgentAssignments.length > 0 && (
+        <div className="rounded-2xl border-2 border-red-500/80 dark:border-red-500/60 bg-gradient-to-r from-red-500/10 via-amber-500/10 to-transparent p-5 md:p-6 shadow-md transition-all">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+                </span>
+                <span className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Urgent Assignment Deadline Warning</span>
+                </span>
+                <span className="rounded-full bg-red-600 text-white text-[10px] font-bold px-2 py-0.5">
+                  {urgentAssignments.length} Pending &lt; 24h
+                </span>
+              </div>
+              <h3 className="text-base md:text-lg font-bold text-slate-900 dark:text-slate-100 font-serif">
+                Coursework due within 24 hours — Submit your solutions promptly
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Assignments submitted before the deadline are evaluated for timely completion and early-bird badges.
+              </p>
+            </div>
+
+            {/* Browser notification permission trigger */}
+            {browserPermission !== 'granted' && (
+              <button
+                onClick={handleRequestPermission}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-400/40 px-3.5 py-2 text-xs font-semibold transition-all shrink-0"
+              >
+                <BellRing className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-bounce" />
+                <span>Enable Browser Notifications</span>
+              </button>
+            )}
+          </div>
+
+          {/* List of urgent assignments */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {urgentAssignments.map((ua) => {
+              const diffMs = new Date(ua.dueDate).getTime() - now;
+              const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
+              const minsLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
+              const isOverdue = diffMs <= 0;
+
+              return (
+                <div
+                  key={ua.id}
+                  className="rounded-xl border border-red-200 dark:border-red-900/60 bg-white/80 dark:bg-slate-900/80 p-3.5 shadow-xs flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {ua.title}
+                      </h4>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                          isOverdue
+                            ? 'bg-red-600 text-white'
+                            : 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800'
+                        }`}
+                      >
+                        {isOverdue ? '⚠️ Overdue' : `⚡ Due in ${hoursLeft}h ${minsLeft}m`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                      Due: {new Date(ua.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date(ua.dueDate).toLocaleDateString()} • {ua.maxMarks} Marks
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => onNavigate('assignments')}
+                    className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-bold text-white transition-all shadow-xs shrink-0"
+                  >
+                    <span>Submit</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
@@ -599,6 +768,57 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       </div>
 
+      {/* AI-DRIVEN SCIENCE STUDY PLANNER SPOTLIGHT SECTION */}
+      <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-r from-indigo-950 via-slate-900 to-blue-950 p-6 text-white shadow-lg">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 border border-indigo-400/40 px-3 py-1 text-xs font-bold text-indigo-300">
+              <Dna className="w-3.5 h-3.5 text-teal-400" />
+              <span>Personalized AI Science Study Planner • Google DeepMind Science Skills</span>
+            </div>
+            <h3 className="font-serif text-xl md:text-2xl font-bold tracking-tight text-white">
+              Intelligent 7-Day Study Schedules Tailored to Deadlines & Biological Databases
+            </h3>
+            <p className="text-xs text-indigo-200 leading-relaxed">
+              Powered by <strong>Gemini 3.8 Flash</strong>, the study planner dynamically prioritizes pending coursework due within 24 hours, weights your G.C.E. A/L test scores, and cross-references authoritative biological databases (AlphaFold DB protein structures, Reactome metabolic pathways, and PubChem stoichiometry).
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2 text-xs">
+              <div className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1 text-white border border-white/10">
+                <Clock className="w-3.5 h-3.5 text-amber-300" />
+                <span>Urgent &lt;24h Deadlines Prioritized</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1 text-white border border-white/10">
+                <Dna className="w-3.5 h-3.5 text-teal-300" />
+                <span>AlphaFold DB & Reactome Integrated</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1 text-white border border-white/10">
+                <Award className="w-3.5 h-3.5 text-emerald-300" />
+                <span>92% Exam Readiness Target</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row lg:flex-col gap-3 shrink-0">
+            <button
+              onClick={() => setShowStudyPlanner(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 px-5 py-3 text-xs font-bold text-white transition-all shadow-md"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>Launch AI Study Planner</span>
+            </button>
+
+            <button
+              onClick={() => setShowQRScanModal(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-5 py-3 text-xs font-bold text-white transition-all shadow-md"
+            >
+              <Camera className="w-4 h-4" />
+              <span>Scan Classroom QR (Hall 28)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* DIGITAL BADGES & ENGAGEMENT HONOURS */}
       <StudentBadgeSection summary={badgeSummary} />
 
@@ -635,36 +855,53 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   const isSubmitted = submissions.some(
                     (s) => s.assignmentId === a.id && s.studentId === userProfile?.userId
                   );
+                  const isUrgent = !isSubmitted && urgentAssignments.some((u) => u.id === a.id);
+                  const diffMs = new Date(a.dueDate).getTime() - now;
+                  const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
 
                   return (
                     <div
                       key={a.id}
-                      className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-white dark:hover:bg-slate-800 hover:border-blue-300 dark:hover:border-blue-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+                      className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+                        isUrgent
+                          ? 'border-red-300 dark:border-red-800/80 bg-red-50/40 dark:bg-red-950/20 hover:border-red-400'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-white dark:hover:bg-slate-800 hover:border-blue-300 dark:hover:border-blue-700'
+                      }`}
                     >
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center flex-wrap gap-2">
                           <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">{a.title}</h4>
-                          <span
-                            className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
-                              isSubmitted
-                                ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
-                                : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
-                            }`}
-                          >
-                            {isSubmitted ? 'Submitted' : 'Pending'}
-                          </span>
+                          {isSubmitted ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Submitted
+                            </span>
+                          ) : isUrgent ? (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 flex items-center gap-1 animate-pulse">
+                              <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />
+                              Due in {hoursLeft}h (Urgent)
+                            </span>
+                          ) : (
+                            <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                              Pending
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 line-clamp-1">{a.description}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Due: {new Date(a.dueDate).toLocaleDateString()} • Max Marks: {a.maxMarks}
+                        <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5">
+                          <Clock className="w-3 h-3" />
+                          <span>Due: {new Date(a.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date(a.dueDate).toLocaleDateString()} • Max Marks: {a.maxMarks}</span>
                         </p>
                       </div>
 
                       <button
                         onClick={() => onNavigate('assignments')}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors shrink-0 shadow-xs"
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-white transition-colors shrink-0 shadow-xs ${
+                          isUrgent
+                            ? 'bg-red-600 hover:bg-red-700 font-bold'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
                       >
-                        <span>{isSubmitted ? 'View Submission' : 'Submit Solution'}</span>
+                        <span>{isSubmitted ? 'View Submission' : isUrgent ? 'Submit Solution (Urgent)' : 'Submit Solution'}</span>
                         <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -708,6 +945,22 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* QR Attendance Camera Scanner Modal */}
+      <QRAttendanceModal
+        isOpen={showQRScanModal}
+        onClose={() => setShowQRScanModal(false)}
+        mode="scan"
+      />
+
+      {/* AI Science Study Planner Modal */}
+      <AIStudyPlannerModal
+        isOpen={showStudyPlanner}
+        onClose={() => setShowStudyPlanner(false)}
+        assignments={assignments}
+        testMarks={marks}
+        onLaunchTutorTopic={onLaunchTutorTopic}
+      />
     </div>
   );
 };

@@ -23,6 +23,16 @@ import {
   Mail,
   MapPin,
   Clock,
+  MessageSquare,
+  MessageCircle,
+  Send,
+  ShieldAlert,
+  FileText,
+  Download,
+  UserCheck,
+  Eye,
+  RefreshCw,
+  Filter,
 } from 'lucide-react';
 import {
   collection,
@@ -31,6 +41,8 @@ import {
   setDoc,
   deleteDoc,
   addDoc,
+  query,
+  where,
 } from 'firebase/firestore';
 import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useSiteConfig } from '../context/SiteConfigContext';
@@ -43,6 +55,8 @@ import {
   SchoolEvent,
   LearningMaterial,
   UserRole,
+  Conversation,
+  DirectMessage,
 } from '../types';
 
 type AdminTab =
@@ -50,6 +64,7 @@ type AdminTab =
   | 'subjects'
   | 'classes'
   | 'users'
+  | 'chats'
   | 'announcements'
   | 'calendar'
   | 'materials';
@@ -70,6 +85,14 @@ export const AdminMasterControlPage: React.FC = () => {
   const [events, setEvents] = useState<SchoolEvent[]>([]);
   const [materials, setMaterials] = useState<LearningMaterial[]>([]);
 
+  // Personal Chats Oversight State (Admin view of private 1-to-1 conversations)
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const [convMessages, setConvMessages] = useState<DirectMessage[]>([]);
+  const [chatSearch, setChatSearch] = useState<string>('');
+  const [chatRoleFilter, setChatRoleFilter] = useState<'all' | 'students' | 'teachers' | 'parents'>('all');
+  const [adminReplyText, setAdminReplyText] = useState<string>('');
+
   // Modals & temporary editing states
   const [editingSubject, setEditingSubject] = useState<Partial<Subject> | null>(null);
   const [editingClass, setEditingClass] = useState<Partial<SchoolClass> | null>(null);
@@ -81,9 +104,153 @@ export const AdminMasterControlPage: React.FC = () => {
   const [userSearch, setUserSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
 
+  // Appoint User Role Modal State
+  const [showAppointModal, setShowAppointModal] = useState(false);
+  const [appointName, setAppointName] = useState('');
+  const [appointEmail, setAppointEmail] = useState('');
+  const [appointRole, setAppointRole] = useState<UserRole>('student');
+  const [appointDetail, setAppointDetail] = useState('');
+
   useEffect(() => {
     setBrandingForm(siteConfig);
   }, [siteConfig]);
+
+  // Helper to seed realistic academic demo conversations if none exist in Firestore
+  const seedAuditConversations = async (): Promise<Conversation[]> => {
+    const defaultConvs: { conv: Conversation; messages: DirectMessage[] }[] = [
+      {
+        conv: {
+          id: 'conv-audit-bio-1',
+          participantIds: ['student_aadhil', 'teacher_kareem'],
+          participantNames: {
+            student_aadhil: 'M. R. Mohamed Aadhil (Student - 2K28-SCI-001)',
+            teacher_kareem: 'Dr. A. Kareem (Faculty - Biology Department)',
+          },
+          lastMessage: 'Sir, could you please verify the DNA extraction lab report hypothesis before submission?',
+          lastMessageAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
+          updatedAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
+        },
+        messages: [
+          {
+            id: 'msg-audit-1',
+            conversationId: 'conv-audit-bio-1',
+            senderId: 'student_aadhil',
+            senderName: 'M. R. Mohamed Aadhil (Student)',
+            text: 'Assalamu Alaikum Dr. Kareem, for the Biology practical report on DNA Extraction from Onion Cells, should we include standard deviations in Table 2?',
+            createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+          },
+          {
+            id: 'msg-audit-2',
+            conversationId: 'conv-audit-bio-1',
+            senderId: 'teacher_kareem',
+            senderName: 'Dr. A. Kareem (Teacher)',
+            text: 'Wa Alaikum Assalam Aadhil. Yes, standard deviations and error bars are required as per Cambridge/GCE Advanced Level bio-science specifications.',
+            createdAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
+          },
+          {
+            id: 'msg-audit-3',
+            conversationId: 'conv-audit-bio-1',
+            senderId: 'student_aadhil',
+            senderName: 'M. R. Mohamed Aadhil (Student)',
+            text: 'Sir, could you please verify the DNA extraction lab report hypothesis before submission?',
+            createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
+          },
+        ],
+      },
+      {
+        conv: {
+          id: 'conv-audit-math-2',
+          participantIds: ['student_zahra', 'teacher_fazil'],
+          participantNames: {
+            student_zahra: 'Fathima Zahra (Student - 2K28-SCI-002)',
+            teacher_fazil: 'Eng. M. Fazil (Faculty - Combined Mathematics)',
+          },
+          lastMessage: 'Understood sir, I will complete the trigonometric differentiation problem set by Friday.',
+          lastMessageAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+          updatedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+        },
+        messages: [
+          {
+            id: 'msg-audit-4',
+            conversationId: 'conv-audit-math-2',
+            senderId: 'student_zahra',
+            senderName: 'Fathima Zahra (Student)',
+            text: 'Good afternoon Sir Fazil, should we solve Question 8 in Calculus using integration by parts or trigonometric substitution?',
+            createdAt: new Date(Date.now() - 1000 * 60 * 135).toISOString(),
+          },
+          {
+            id: 'msg-audit-5',
+            conversationId: 'conv-audit-math-2',
+            senderId: 'teacher_fazil',
+            senderName: 'Eng. M. Fazil (Teacher)',
+            text: 'Substitute x = a*tan(theta) first; that transforms the radical into a standard secant integral.',
+            createdAt: new Date(Date.now() - 1000 * 60 * 128).toISOString(),
+          },
+          {
+            id: 'msg-audit-6',
+            conversationId: 'conv-audit-math-2',
+            senderId: 'student_zahra',
+            senderName: 'Fathima Zahra (Student)',
+            text: 'Understood sir, I will complete the trigonometric differentiation problem set by Friday.',
+            createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+          },
+        ],
+      },
+      {
+        conv: {
+          id: 'conv-audit-parent-3',
+          participantIds: ['parent_rizwan', 'admin_jaasim'],
+          participantNames: {
+            parent_rizwan: 'Rizwan Hamza (Parent of Hamza Rizwan)',
+            admin_jaasim: 'M. N. M. Jaasim (Admin)',
+          },
+          lastMessage: 'Thank you for the update on the 2k28 Science EM term schedule and mock exam dates.',
+          lastMessageAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
+          updatedAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
+        },
+        messages: [
+          {
+            id: 'msg-audit-7',
+            conversationId: 'conv-audit-parent-3',
+            senderId: 'parent_rizwan',
+            senderName: 'Rizwan Hamza (Parent)',
+            text: 'Respected Administrator Jaasim, Hamza mentioned the 2k28 Science batch has supplementary physics revision sessions on Saturdays. Is attendance mandatory?',
+            createdAt: new Date(Date.now() - 1000 * 60 * 260).toISOString(),
+          },
+          {
+            id: 'msg-audit-8',
+            conversationId: 'conv-audit-parent-3',
+            senderId: 'admin_jaasim',
+            senderName: 'M. N. M. Jaasim (Admin)',
+            text: 'Dear Mr. Rizwan, Saturday sessions cover advanced mechanics problem-solving. While strongly recommended for high A* targets, attendance records are tracked in the portal.',
+            createdAt: new Date(Date.now() - 1000 * 60 * 248).toISOString(),
+          },
+          {
+            id: 'msg-audit-9',
+            conversationId: 'conv-audit-parent-3',
+            senderId: 'parent_rizwan',
+            senderName: 'Rizwan Hamza (Parent)',
+            text: 'Thank you for the update on the 2k28 Science EM term schedule and mock exam dates.',
+            createdAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
+          },
+        ],
+      },
+    ];
+
+    const list: Conversation[] = [];
+    try {
+      for (const item of defaultConvs) {
+        await setDoc(doc(db, 'conversations', item.conv.id), sanitizeFirestoreDoc(item.conv));
+        for (const m of item.messages) {
+          await setDoc(doc(db, 'messages', m.id), sanitizeFirestoreDoc(m));
+        }
+        list.push(item.conv);
+      }
+    } catch (e) {
+      console.warn('Seeding audit conversations note:', e);
+    }
+    return list;
+  };
 
   // Real-time synchronization for all entities
   useEffect(() => {
@@ -123,6 +290,24 @@ export const AdminMasterControlPage: React.FC = () => {
       setMaterials(list);
     });
 
+    const unsubConversations = onSnapshot(collection(db, 'conversations'), async (snap) => {
+      const list: Conversation[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Conversation));
+      if (list.length > 0) {
+        const sorted = list.sort(
+          (a, b) =>
+            new Date(b.updatedAt || b.lastMessageAt || 0).getTime() -
+            new Date(a.updatedAt || a.lastMessageAt || 0).getTime()
+        );
+        setConversations(sorted);
+        setSelectedConvId((prev) => (prev && sorted.some((c) => c.id === prev) ? prev : sorted[0].id));
+      } else {
+        const seeded = await seedAuditConversations();
+        setConversations(seeded);
+        if (seeded.length > 0) setSelectedConvId(seeded[0].id);
+      }
+    });
+
     return () => {
       unsubSubjects();
       unsubClasses();
@@ -130,8 +315,100 @@ export const AdminMasterControlPage: React.FC = () => {
       unsubAnnouncements();
       unsubEvents();
       unsubMaterials();
+      unsubConversations();
     };
   }, []);
+
+  // Real-time messages listener for the selected conversation
+  useEffect(() => {
+    if (!selectedConvId) {
+      setConvMessages([]);
+      return;
+    }
+
+    try {
+      const q = query(collection(db, 'messages'), where('conversationId', '==', selectedConvId));
+      const unsub = onSnapshot(q, (snapshot) => {
+        const msgs: DirectMessage[] = [];
+        snapshot.forEach((d) => msgs.push({ id: d.id, ...d.data() } as DirectMessage));
+        setConvMessages(msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+      });
+      return () => unsub();
+    } catch (e) {
+      console.warn('Real-time messages listener note:', e);
+    }
+  }, [selectedConvId]);
+
+  // Chat Audit Action Handlers
+  const handleAdminSendDirective = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!adminReplyText.trim() || !selectedConvId) return;
+    const text = adminReplyText.trim();
+    setAdminReplyText('');
+
+    const msgId = `msg-admin-directive-${Date.now()}`;
+    const newMsg: DirectMessage = {
+      id: msgId,
+      conversationId: selectedConvId,
+      senderId: 'admin_jaasim',
+      senderName: 'M. N. M. Jaasim (Admin Oversight)',
+      text: `[OFFICIAL ADMIN DIRECTIVE]: ${text}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await setDoc(doc(db, 'messages', msgId), sanitizeFirestoreDoc(newMsg));
+      await setDoc(
+        doc(db, 'conversations', selectedConvId),
+        {
+          lastMessage: `[Admin Directive]: ${text}`,
+          lastMessageAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      triggerNotice('Official administrative directive dispatched to conversation.');
+    } catch (err: any) {
+      alert('Error sending admin intervention: ' + err.message);
+    }
+  };
+
+  const handleExportTranscript = (conv: Conversation, msgs: DirectMessage[]) => {
+    const participants = Object.values(conv.participantNames).join(' & ');
+    let output = `========================================================\n`;
+    output += `ZAHIRA COLLEGE 2K28 SCIENCE EM - OFFICIAL CHAT AUDIT\n`;
+    output += `CONVERSATION ID: ${conv.id}\n`;
+    output += `PARTICIPANTS: ${participants}\n`;
+    output += `AUDIT EXPORTED AT: ${new Date().toLocaleString()}\n`;
+    output += `TOTAL MESSAGES: ${msgs.length}\n`;
+    output += `========================================================\n\n`;
+
+    msgs.forEach((m, idx) => {
+      output += `[${idx + 1}] ${new Date(m.createdAt).toLocaleString()} | From: ${m.senderName}\n`;
+      output += `    ${m.text}\n\n`;
+    });
+
+    const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Audit_Chat_${conv.id}_${new Date().toISOString().split('T')[0]}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    triggerNotice('Chat transcript downloaded successfully!');
+  };
+
+  const handleDeleteConversation = async (convId: string) => {
+    if (window.confirm('Delete this conversation and audit logs? This action is permanent.')) {
+      try {
+        await deleteDoc(doc(db, 'conversations', convId));
+        setSelectedConvId(null);
+        triggerNotice('Conversation removed from audit database.');
+      } catch (err: any) {
+        alert('Error removing conversation: ' + err.message);
+      }
+    }
+  };
 
   const triggerNotice = (msg: string) => {
     setSavedNotice(msg);
@@ -223,6 +500,51 @@ export const AdminMasterControlPage: React.FC = () => {
     }
   };
 
+  const handleQuickAppointRole = async (userId: string, newRole: UserRole, userName?: string) => {
+    try {
+      await setDoc(
+        doc(db, 'userProfiles', userId),
+        { role: newRole, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      triggerNotice(`Role for "${userName || 'User'}" appointed to ${newRole.toUpperCase()} successfully!`);
+    } catch (err: any) {
+      alert('Error updating user role: ' + err.message);
+    }
+  };
+
+  const handleCreateAndAppointUser = async () => {
+    if (!appointName.trim() || !appointEmail.trim()) {
+      alert('Please enter user full name and email address.');
+      return;
+    }
+    const newId = `user-${Date.now()}`;
+    const newProfile: UserProfile = {
+      userId: newId,
+      fullName: appointName.trim(),
+      email: appointEmail.trim().toLowerCase(),
+      role: appointRole,
+      bio: appointDetail.trim() || `${appointRole.toUpperCase()} • Zahira College 2k28 Science EM`,
+      subject: appointRole === 'teacher' ? (appointDetail.trim() || 'General Science') : undefined,
+      stream: appointRole === 'student' ? (appointDetail.trim() || '2k28 Science EM') : undefined,
+      avatarUrl: '',
+      assignedClassIds: ['class-2k28-science-em'],
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await setDoc(doc(db, 'userProfiles', newId), sanitizeFirestoreDoc(newProfile));
+      setShowAppointModal(false);
+      setAppointName('');
+      setAppointEmail('');
+      setAppointDetail('');
+      setAppointRole('student');
+      triggerNotice(`User "${newProfile.fullName}" appointed as ${appointRole.toUpperCase()} successfully!`);
+    } catch (err: any) {
+      alert('Error appointing user role: ' + err.message);
+    }
+  };
+
   // 5. Announcement Actions
   const handleSaveAnnouncement = async () => {
     if (!editingAnnouncement?.title || !editingAnnouncement?.content) return;
@@ -288,6 +610,45 @@ export const AdminMasterControlPage: React.FC = () => {
     return matchSearch && matchRole;
   });
 
+  // Filtered personal conversations for Admin oversight
+  const filteredConversations = conversations.filter((c) => {
+    const participantText = Object.values(c.participantNames || {}).join(' ').toLowerCase();
+    const lastMsgText = (c.lastMessage || '').toLowerCase();
+    const query = chatSearch.toLowerCase();
+    const matchesSearch =
+      !query || participantText.includes(query) || lastMsgText.includes(query) || c.id.toLowerCase().includes(query);
+
+    if (!matchesSearch) return false;
+
+    if (chatRoleFilter === 'all') return true;
+    if (chatRoleFilter === 'students') {
+      return (
+        participantText.includes('student') ||
+        participantText.includes('scholar') ||
+        participantText.includes('2k28') ||
+        c.participantIds.some((id) => id.includes('student'))
+      );
+    }
+    if (chatRoleFilter === 'teachers') {
+      return (
+        participantText.includes('faculty') ||
+        participantText.includes('dr.') ||
+        participantText.includes('eng.') ||
+        participantText.includes('teacher') ||
+        c.participantIds.some((id) => id.includes('teacher'))
+      );
+    }
+    if (chatRoleFilter === 'parents') {
+      return (
+        participantText.includes('parent') ||
+        c.participantIds.some((id) => id.includes('parent'))
+      );
+    }
+    return true;
+  });
+
+  const currentSelectedConv = conversations.find((c) => c.id === selectedConvId) || conversations[0];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header Banner - Royal Blue & Crimson Red Theme */}
@@ -322,6 +683,7 @@ export const AdminMasterControlPage: React.FC = () => {
             { id: 'subjects', label: `Subjects (${subjects.length})`, icon: BookOpen },
             { id: 'classes', label: `Classes (${classes.length})`, icon: GraduationCap },
             { id: 'users', label: `Users & Roles (${users.length})`, icon: Users },
+            { id: 'chats', label: `Personal Chats (${conversations.length})`, icon: MessageSquare },
             { id: 'announcements', label: `Notices (${announcements.length})`, icon: Bell },
             { id: 'calendar', label: `Calendar Events (${events.length})`, icon: Calendar },
             { id: 'materials', label: `Materials (${materials.length})`, icon: BookMarked },
@@ -816,9 +1178,17 @@ export const AdminMasterControlPage: React.FC = () => {
                 User Accounts & Permission Roles
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Manage registered faculty, students, and administrators. Promote or adjust their academic stream and subject.
+                Manage registered faculty, students, parents, and administrators. Appoint or adjust permission roles instantly in real time.
               </p>
             </div>
+
+            <button
+              onClick={() => setShowAppointModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-900 hover:bg-blue-950 px-4 py-2 text-xs font-bold text-white transition-all shadow-sm shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Appoint / Provision User Role</span>
+            </button>
           </div>
 
           {/* Filters */}
@@ -842,7 +1212,7 @@ export const AdminMasterControlPage: React.FC = () => {
               <option value="admin">Administrators</option>
               <option value="teacher">Teachers / Faculty</option>
               <option value="student">Students / Scholars</option>
-              <option value="parent">Parents</option>
+              <option value="parent">Parents / Guardians</option>
             </select>
           </div>
 
@@ -851,7 +1221,8 @@ export const AdminMasterControlPage: React.FC = () => {
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
                 <tr>
                   <th className="py-3 px-4">User</th>
-                  <th className="py-3 px-4">Role</th>
+                  <th className="py-3 px-4">Current Role</th>
+                  <th className="py-3 px-4">Appoint Role</th>
                   <th className="py-3 px-4">Specialization</th>
                   <th className="py-3 px-4">Email</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -878,11 +1249,26 @@ export const AdminMasterControlPage: React.FC = () => {
                             ? 'bg-red-100 text-red-800'
                             : u.role === 'teacher'
                             ? 'bg-blue-100 text-blue-900'
+                            : u.role === 'parent'
+                            ? 'bg-amber-100 text-amber-800'
                             : 'bg-emerald-100 text-emerald-800'
                         }`}
                       >
                         {u.role}
                       </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <select
+                        value={u.role}
+                        onChange={(e) => handleQuickAppointRole(u.userId, e.target.value as UserRole, u.fullName)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 font-semibold focus:outline-none focus:border-blue-900 shadow-2xs"
+                        title="Appoint a new role to this user"
+                      >
+                        <option value="student">Student (Scholar)</option>
+                        <option value="teacher">Teacher (Faculty)</option>
+                        <option value="parent">Parent (Guardian)</option>
+                        <option value="admin">Administrator</option>
+                      </select>
                     </td>
                     <td className="py-3 px-4">
                       {u.role === 'teacher' && (
@@ -893,6 +1279,9 @@ export const AdminMasterControlPage: React.FC = () => {
                       )}
                       {u.role === 'admin' && (
                         <span className="text-red-700 font-semibold">Chief Academic Lead</span>
+                      )}
+                      {u.role === 'parent' && (
+                        <span className="text-amber-800 font-medium">Guardian Account</span>
                       )}
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-600">{u.email}</td>
@@ -923,7 +1312,7 @@ export const AdminMasterControlPage: React.FC = () => {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/60 p-4 backdrop-blur-xs">
               <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-blue-200">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <h3 className="font-serif text-lg font-bold text-blue-950">Edit User Details</h3>
+                  <h3 className="font-serif text-lg font-bold text-blue-950">Edit User & Appoint Role</h3>
                   <button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-700">
                     <X className="w-5 h-5" />
                   </button>
@@ -939,7 +1328,7 @@ export const AdminMasterControlPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="font-bold text-blue-950 block mb-1">Permission Role</label>
+                    <label className="font-bold text-blue-950 block mb-1">Appointed Permission Role</label>
                     <select
                       value={editingUser.role || 'student'}
                       onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}
@@ -999,6 +1388,455 @@ export const AdminMasterControlPage: React.FC = () => {
                     Save Changes
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Provision & Appoint New User Role Modal */}
+          {showAppointModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/60 p-4 backdrop-blur-xs">
+              <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-blue-200 animate-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="font-serif text-lg font-bold text-blue-950">Appoint User Role</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Provision a new user account with student, teacher, parent, or admin permissions
+                    </p>
+                  </div>
+                  <button onClick={() => setShowAppointModal(false)} className="text-slate-400 hover:text-slate-700">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3.5 mt-4 text-xs">
+                  <div>
+                    <label className="font-bold text-blue-950 block mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. M. F. Farook (Teacher) or A. R. Rameez (Parent)"
+                      value={appointName}
+                      onChange={(e) => setAppointName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 p-2.5 focus:border-blue-900 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-blue-950 block mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      placeholder="e.g. farook@zahira.lk"
+                      value={appointEmail}
+                      onChange={(e) => setAppointEmail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 p-2.5 focus:border-blue-900 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-blue-950 block mb-1">Appoint Permission Role</label>
+                    <select
+                      value={appointRole}
+                      onChange={(e) => setAppointRole(e.target.value as UserRole)}
+                      className="w-full rounded-xl border border-slate-200 p-2.5 font-bold text-blue-900 bg-blue-50/50 focus:border-blue-900 focus:outline-none"
+                    >
+                      <option value="student">Student (Scholar) - Access to Courses, AI Planner & Quizzes</option>
+                      <option value="teacher">Teacher (Faculty) - Access to Roll-Call, Grading & Materials</option>
+                      <option value="parent">Parent (Guardian) - Access to Scholar Progress & Attendance Reports</option>
+                      <option value="admin">Administrator - Full Master Control & Oversight Access</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-blue-950 block mb-1">
+                      {appointRole === 'teacher'
+                        ? 'Subject Specialization'
+                        : appointRole === 'student'
+                        ? 'Academic Stream'
+                        : appointRole === 'parent'
+                        ? 'Student Index / Linked Scholar'
+                        : 'Administrative Title'}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={
+                        appointRole === 'teacher'
+                          ? 'e.g. Biology & Genetics'
+                          : appointRole === 'student'
+                          ? 'e.g. 2k28 Science EM'
+                          : appointRole === 'parent'
+                          ? 'e.g. Parent of 2K28-SCI-001'
+                          : 'e.g. Academic Leadership'
+                      }
+                      value={appointDetail}
+                      onChange={(e) => setAppointDetail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 p-2.5 focus:border-blue-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 flex justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    onClick={() => setShowAppointModal(false)}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateAndAppointUser}
+                    className="px-5 py-2 rounded-xl bg-blue-900 text-white font-bold text-xs hover:bg-blue-950 transition-colors shadow-sm"
+                  >
+                    Appoint Role
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: PERSONAL CHATS & COMMUNICATIONS AUDIT */}
+      {activeTab === 'chats' && (
+        <div className="rounded-2xl border border-blue-100 bg-white p-6 md:p-8 shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-blue-50">
+            <div>
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-bold text-blue-900 border border-blue-200 mb-1">
+                <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                <span>Safeguarding & Institutional Oversight</span>
+              </div>
+              <h2 className="font-serif text-xl font-bold text-blue-950">
+                Personal Academic Chats & Communications Oversight
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Full administrative transparency into all 1-to-1 direct messaging threads between students, faculty, and parents. Inspect conversations, audit transcripts, and dispatch directives.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={async () => {
+                  const seeded = await seedAuditConversations();
+                  setConversations(seeded);
+                  if (seeded.length > 0) setSelectedConvId(seeded[0].id);
+                  triggerNotice('Seeded 3 realistic student-teacher demo conversations.');
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold px-3 py-2 text-xs transition-colors"
+                title="Seed student and faculty demonstration chats"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reset / Seed Demo Chats</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search & Participant Filter Controls */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={chatSearch}
+                onChange={(e) => setChatSearch(e.target.value)}
+                placeholder="Search by participant name, role, or message text..."
+                className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-blue-600 text-xs font-medium"
+              />
+              {chatSearch && (
+                <button
+                  onClick={() => setChatSearch('')}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0 overflow-x-auto">
+              <span className="text-[11px] font-bold text-slate-500 uppercase mr-1 flex items-center gap-1">
+                <Filter className="w-3 h-3" />
+                Filter:
+              </span>
+              {[
+                { id: 'all', label: `All (${conversations.length})` },
+                { id: 'students', label: 'Students' },
+                { id: 'teachers', label: 'Teachers' },
+                { id: 'parents', label: 'Parents' },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setChatRoleFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    chatRoleFilter === f.id
+                      ? 'bg-blue-900 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200/70 border border-slate-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Split Pane: Conversations List & Message Inspector */}
+          {filteredConversations.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+              <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-slate-700">No matching conversations found</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                No conversations match your current search query or filter. Click &quot;Reset / Seed Demo Chats&quot; above to initialize academic threads.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[580px]">
+              {/* Left Column: Conversation Directory (5 cols) */}
+              <div className="lg:col-span-5 rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col shadow-xs">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-blue-900" />
+                    <span className="text-xs font-bold text-blue-950 uppercase tracking-wider">
+                      Conversations ({filteredConversations.length})
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-semibold">Live Firestore Feed</span>
+                </div>
+
+                <div className="divide-y divide-slate-100 overflow-y-auto max-h-[560px]">
+                  {filteredConversations.map((conv) => {
+                    const isSelected = selectedConvId === conv.id;
+                    const participants = Object.entries(conv.participantNames || {});
+                    const participantDisplay = participants.map(([, name]) => name).join(' • ');
+
+                    return (
+                      <div
+                        key={conv.id}
+                        onClick={() => setSelectedConvId(conv.id)}
+                        className={`p-4 transition-all cursor-pointer relative ${
+                          isSelected
+                            ? 'bg-blue-50/80 border-l-4 border-blue-900'
+                            : 'hover:bg-slate-50/80'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                              {participants.map(([id, name]) => {
+                                const isTeacher =
+                                  id.includes('teacher') ||
+                                  name.toLowerCase().includes('faculty') ||
+                                  name.toLowerCase().includes('dr.') ||
+                                  name.toLowerCase().includes('eng.');
+                                const isStudent =
+                                  id.includes('student') ||
+                                  name.toLowerCase().includes('student') ||
+                                  name.toLowerCase().includes('scholar') ||
+                                  name.toLowerCase().includes('2k28');
+                                const isParent = id.includes('parent') || name.toLowerCase().includes('parent');
+                                const isAdmin = id.includes('admin') || name.toLowerCase().includes('admin');
+
+                                let badgeClass = 'bg-slate-100 text-slate-700 border-slate-200';
+                                let roleLabel = 'User';
+                                if (isAdmin) {
+                                  badgeClass = 'bg-red-50 text-red-700 border-red-200';
+                                  roleLabel = 'Admin';
+                                } else if (isTeacher) {
+                                  badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
+                                  roleLabel = 'Faculty';
+                                } else if (isStudent) {
+                                  badgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                  roleLabel = 'Student';
+                                } else if (isParent) {
+                                  badgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+                                  roleLabel = 'Parent';
+                                }
+
+                                return (
+                                  <span
+                                    key={id}
+                                    className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}
+                                  >
+                                    {roleLabel}: {name.split('(')[0].trim()}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <h4 className="text-xs font-bold text-blue-950 truncate">{participantDisplay}</h4>
+                            <p className="text-xs text-slate-600 line-clamp-2 mt-1 font-normal">
+                              {conv.lastMessage || 'No recent messages'}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-col items-end shrink-0 gap-2">
+                            <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                              {conv.lastMessageAt
+                                ? new Date(conv.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                : ''}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteConversation(conv.id);
+                              }}
+                              className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title="Delete conversation"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Column: Live Message Transcript & Admin Directive Panel (7 cols) */}
+              <div className="lg:col-span-7 rounded-2xl border border-slate-200 bg-white flex flex-col shadow-xs overflow-hidden">
+                {currentSelectedConv ? (
+                  <>
+                    {/* Transcript Header */}
+                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Eye className="w-4 h-4 text-blue-900" />
+                          <h3 className="text-sm font-bold text-blue-950 font-serif">
+                            Live Transcript Inspector
+                          </h3>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate max-w-md">
+                          Participants: {Object.values(currentSelectedConv.participantNames || {}).join(' & ')}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleExportTranscript(currentSelectedConv, convMessages)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold px-3 py-1.5 text-xs shadow-xs transition-colors"
+                          title="Download complete chat log as text audit file"
+                        >
+                          <Download className="w-3.5 h-3.5 text-blue-900" />
+                          <span>Export Transcript</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Chat Messages Body */}
+                    <div className="flex-1 p-5 overflow-y-auto max-h-[420px] min-h-[300px] space-y-4 bg-slate-50/30">
+                      {convMessages.length === 0 ? (
+                        <div className="text-center py-12 text-slate-400 text-xs">
+                          <MessageSquare className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                          <p>No messages recorded in this thread yet.</p>
+                        </div>
+                      ) : (
+                        convMessages.map((msg) => {
+                          const isAdminDirective =
+                            msg.senderId === 'admin_jaasim' ||
+                            msg.text.includes('[OFFICIAL ADMIN DIRECTIVE]') ||
+                            msg.senderName.toLowerCase().includes('admin');
+                          const isFaculty =
+                            msg.senderId.includes('teacher') ||
+                            msg.senderName.toLowerCase().includes('dr.') ||
+                            msg.senderName.toLowerCase().includes('eng.') ||
+                            msg.senderName.toLowerCase().includes('faculty') ||
+                            msg.senderName.toLowerCase().includes('teacher');
+                          const isParent =
+                            msg.senderId.includes('parent') ||
+                            msg.senderName.toLowerCase().includes('parent');
+
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex flex-col ${
+                                isAdminDirective
+                                  ? 'items-center my-3'
+                                  : isFaculty
+                                  ? 'items-end'
+                                  : 'items-start'
+                              }`}
+                            >
+                              {isAdminDirective ? (
+                                <div className="w-full max-w-lg rounded-xl border-2 border-red-500 bg-red-50/90 p-3 shadow-xs text-xs">
+                                  <div className="flex items-center justify-between gap-2 border-b border-red-200 pb-1 mb-1.5">
+                                    <span className="font-bold text-red-900 flex items-center gap-1">
+                                      <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                                      {msg.senderName}
+                                    </span>
+                                    <span className="text-[10px] text-red-700">
+                                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                  <p className="text-red-950 font-medium leading-relaxed">{msg.text}</p>
+                                </div>
+                              ) : (
+                                <div
+                                  className={`max-w-[85%] rounded-2xl p-3.5 text-xs shadow-xs ${
+                                    isFaculty
+                                      ? 'bg-blue-900 text-white rounded-br-xs'
+                                      : isParent
+                                      ? 'bg-amber-100 text-amber-950 border border-amber-200 rounded-bl-xs'
+                                      : 'bg-white text-slate-900 border border-slate-200 rounded-bl-xs'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-4 mb-1">
+                                    <span
+                                      className={`font-bold text-[11px] ${
+                                        isFaculty ? 'text-blue-100' : isParent ? 'text-amber-900' : 'text-blue-950'
+                                      }`}
+                                    >
+                                      {msg.senderName}
+                                    </span>
+                                    <span
+                                      className={`text-[10px] ${
+                                        isFaculty ? 'text-blue-200' : 'text-slate-400'
+                                      }`}
+                                    >
+                                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                  <p className="leading-relaxed font-normal">{msg.text}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Admin Oversight Directive Input */}
+                    <div className="p-4 bg-white border-t border-slate-200">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-red-800 flex items-center gap-1">
+                          <ShieldCheck className="w-3.5 h-3.5 text-red-600" />
+                          Administrative Intervention & Directive Dispatch
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          Dispatches an official notice into this thread
+                        </span>
+                      </div>
+                      <form onSubmit={handleAdminSendDirective} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={adminReplyText}
+                          onChange={(e) => setAdminReplyText(e.target.value)}
+                          placeholder="Type administrative intervention or directive (e.g. Guidance on exam protocol)..."
+                          className="flex-1 rounded-xl border border-slate-300 p-2.5 text-xs text-slate-900 focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!adminReplyText.trim()}
+                          className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Dispatch</span>
+                        </button>
+                      </form>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-400">
+                    <MessageSquare className="w-12 h-12 text-slate-300 mb-2" />
+                    <p className="text-sm font-semibold text-slate-700">Select a Conversation</p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                      Choose any private chat from the list on the left to inspect its messages, verify safeguarding, or dispatch directives.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1399,12 +2237,73 @@ export const AdminMasterControlPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="font-bold text-blue-950 block mb-1">File URL</label>
+                    <label className="font-bold text-blue-950 block mb-1">
+                      Upload PDF From Device (Max 10 MB limit)
+                    </label>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 10 * 1024 * 1024) {
+                          alert(`File size exceeds 10 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a file under 10 MB.`);
+                          e.target.value = '';
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = async () => {
+                          try {
+                            const res = await fetch('/api/upload', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                filename: file.name,
+                                fileData: reader.result,
+                                fileType: file.type || 'application/pdf',
+                              }),
+                            });
+                            if (res.ok) {
+                              const data = await res.json();
+                              setEditingMaterial((prev) => ({
+                                ...(prev || {}),
+                                title: prev?.title || file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
+                                fileUrl: data.url,
+                                fileSize: data.size,
+                              }));
+                              triggerNotice(`PDF uploaded successfully: ${file.name}`);
+                            } else {
+                              setEditingMaterial((prev) => ({
+                                ...(prev || {}),
+                                fileUrl: reader.result as string,
+                                fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+                              }));
+                            }
+                          } catch (err) {
+                            console.warn('Admin upload fallback to dataUrl:', err);
+                            setEditingMaterial((prev) => ({
+                              ...(prev || {}),
+                              fileUrl: reader.result as string,
+                              fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+                            }));
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                      className="w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Direct device upload without URL • Strict 10 MB maximum limit
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-blue-950 block mb-1">Or File Resource URL</label>
                     <input
                       type="text"
                       value={editingMaterial.fileUrl || ''}
                       onChange={(e) => setEditingMaterial({ ...editingMaterial, fileUrl: e.target.value })}
-                      placeholder="https://..."
+                      placeholder="https://... or uploaded file path"
                       className="w-full rounded-xl border border-slate-200 p-2.5 font-mono text-xs"
                     />
                   </div>

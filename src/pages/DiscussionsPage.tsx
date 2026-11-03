@@ -17,6 +17,7 @@ import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { Discussion, DiscussionReply, DiscussionCategory } from '../types';
+import { broadcastSystemNotification } from '../services/notificationService';
 
 export const DiscussionsPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -90,6 +91,12 @@ export const DiscussionsPage: React.FC = () => {
       };
 
       await setDoc(doc(db, 'discussions', id), topic);
+      await broadcastSystemNotification({
+        title: 'New Discussion Thread',
+        message: `${topic.authorName} started a forum discussion: "${topic.title}".`,
+        type: 'discussion',
+        link: 'discussions',
+      });
       setSelectedDiscussion(topic);
       setShowCreateModal(false);
       setNewTitle('');
@@ -122,6 +129,12 @@ export const DiscussionsPage: React.FC = () => {
         { repliesCount: (selectedDiscussion.repliesCount || 0) + 1 },
         { merge: true }
       );
+      await broadcastSystemNotification({
+        title: `Reply in: ${selectedDiscussion.title}`,
+        message: `${newRep.authorName} shared: "${newRep.content.slice(0, 80)}"`,
+        type: 'discussion',
+        link: 'discussions',
+      });
     } catch (e) {
       console.error('Failed to post reply:', e);
     }

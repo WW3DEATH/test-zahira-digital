@@ -20,6 +20,7 @@ import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { Quiz, QuizQuestion, QuizAttempt } from '../types';
 import { SEED_QUIZZES } from '../services/dataService';
+import { broadcastSystemNotification } from '../services/notificationService';
 
 export const QuizzesPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -182,6 +183,12 @@ export const QuizzesPage: React.FC = () => {
         };
 
         await setDoc(doc(db, 'quizzes', newQuiz.id), newQuiz);
+        await broadcastSystemNotification({
+          title: 'New Quiz Published',
+          message: `"${newQuiz.title}" is now active for 2k28 Science EM students.`,
+          type: 'quiz',
+          link: 'quizzes',
+        });
         setQuizzes((prev) => [newQuiz, ...prev]);
         setShowGenerator(false);
       }

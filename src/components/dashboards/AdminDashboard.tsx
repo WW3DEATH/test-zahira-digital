@@ -14,6 +14,7 @@ import {
   Bell,
   RefreshCw,
   ShieldCheck,
+  MessageSquare,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -153,6 +154,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             >
               <ShieldCheck className="w-4 h-4" />
               <span>Master Admin Panel (Edit Website)</span>
+            </button>
+            <button
+              onClick={() => onNavigate('admin_panel')}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-800 hover:bg-blue-700 border border-blue-400/30 px-4 py-2.5 text-xs font-semibold text-white transition-colors"
+              title="Audit and monitor student, faculty, and parent private chats"
+            >
+              <MessageSquare className="w-4 h-4 text-sky-300" />
+              <span>Personal Chats Audit</span>
             </button>
             <button
               onClick={() => onNavigate('calendar')}

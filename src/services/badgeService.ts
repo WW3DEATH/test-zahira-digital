@@ -1,4 +1,13 @@
-import { StudentBadge, StudentBadgeSummary, Submission, QuizAttempt, AttendanceRecord } from '../types';
+import {
+  StudentBadge,
+  StudentBadgeSummary,
+  Submission,
+  QuizAttempt,
+  AttendanceRecord,
+  Assignment,
+  Discussion,
+  DiscussionReply,
+} from '../types';
 
 export const ALL_BADGE_DEFINITIONS: Omit<StudentBadge, 'currentValue' | 'progressPercent' | 'isUnlocked' | 'unlockedAt'>[] = [
   // 1. STREAKS
@@ -139,7 +148,7 @@ export const ALL_BADGE_DEFINITIONS: Omit<StudentBadge, 'currentValue' | 'progres
     xpBonus: 800,
   },
 
-  // 4. ASSIGNMENTS & COURSEWORK
+  // 4. ASSIGNMENTS & EARLY SUBMISSION
   {
     id: 'assign-first-flight',
     title: 'First Flight (Coursework)',
@@ -150,6 +159,39 @@ export const ALL_BADGE_DEFINITIONS: Omit<StudentBadge, 'currentValue' | 'progres
     requirement: 'Submit 1 assignment on time',
     targetValue: 1,
     xpBonus: 100,
+  },
+  {
+    id: 'assign-early-bird',
+    title: 'Early Bird Submitter',
+    description: 'Completed and submitted coursework solutions well ahead of the scheduled deadline.',
+    category: 'assignment',
+    tier: 'bronze',
+    iconName: 'Clock',
+    requirement: 'Submit 1 assignment early (>= 12h before due date)',
+    targetValue: 1,
+    xpBonus: 150,
+  },
+  {
+    id: 'assign-speed-ace',
+    title: 'Speed Vanguard (3 Early Tasks)',
+    description: 'Delivered 3 consecutive coursework solutions at least 24 hours prior to deadline.',
+    category: 'assignment',
+    tier: 'silver',
+    iconName: 'Zap',
+    requirement: 'Submit 3 assignments early',
+    targetValue: 3,
+    xpBonus: 350,
+  },
+  {
+    id: 'assign-pre-deadline-master',
+    title: 'Pre-Deadline Ace (5 Early Tasks)',
+    description: 'Proactive scholar habit: submitted 5 assignments early with zero late delays.',
+    category: 'assignment',
+    tier: 'gold',
+    iconName: 'Crown',
+    requirement: 'Submit 5 assignments early',
+    targetValue: 5,
+    xpBonus: 600,
   },
   {
     id: 'assign-distinction',
@@ -173,6 +215,52 @@ export const ALL_BADGE_DEFINITIONS: Omit<StudentBadge, 'currentValue' | 'progres
     targetValue: 100,
     xpBonus: 450,
   },
+
+  // 5. COMMUNITY DISCUSSIONS & FORUMS
+  {
+    id: 'disc-first-voice',
+    title: 'Curious Voice (First Discussion)',
+    description: 'Posted a question or conceptual reflection in the Science EM community forums.',
+    category: 'discussion',
+    tier: 'bronze',
+    iconName: 'MessageSquare',
+    requirement: 'Participate in 1 community discussion or reply',
+    targetValue: 1,
+    xpBonus: 120,
+  },
+  {
+    id: 'disc-active-scholar',
+    title: 'Forum Contributor (3+ Insights)',
+    description: 'Actively contributed scientific hypotheses or problem clarifications across 3 discussions.',
+    category: 'discussion',
+    tier: 'silver',
+    iconName: 'MessagesSquare',
+    requirement: 'Contribute to 3 discussions or replies',
+    targetValue: 3,
+    xpBonus: 280,
+  },
+  {
+    id: 'disc-socratic-sage',
+    title: 'Socratic Scholar (6+ Insights)',
+    description: 'Community pillar resolving difficult physics mechanics, calculus, and chemistry queries.',
+    category: 'discussion',
+    tier: 'gold',
+    iconName: 'Brain',
+    requirement: 'Contribute to 6 discussions or replies',
+    targetValue: 6,
+    xpBonus: 500,
+  },
+  {
+    id: 'disc-thought-leader',
+    title: 'Cohort Discussion Luminary',
+    description: 'Started top discussions that sparked profound scientific debate and peer collaboration.',
+    category: 'discussion',
+    tier: 'platinum',
+    iconName: 'Sparkles',
+    requirement: 'Contribute to 10 community discussions',
+    targetValue: 10,
+    xpBonus: 850,
+  },
 ];
 
 /**
@@ -183,13 +271,24 @@ export function calculateStudentBadges(params: {
   submissions: Submission[];
   quizAttempts: QuizAttempt[];
   attendanceRecords: AttendanceRecord[];
+  assignments?: Assignment[];
+  discussions?: Discussion[];
+  discussionReplies?: DiscussionReply[];
   totalAssignmentsCount?: number;
 }): StudentBadgeSummary {
-  const { studentId, submissions, quizAttempts, attendanceRecords, totalAssignmentsCount = 5 } = params;
+  const {
+    studentId,
+    submissions,
+    quizAttempts,
+    attendanceRecords,
+    assignments = [],
+    discussions = [],
+    discussionReplies = [],
+    totalAssignmentsCount = 5,
+  } = params;
 
   // 1. Calculate Activity Streak
-  // Check stored streak in localStorage or compute from timestamps
-  let currentStreak = 5; // Default active 5-day streak for 2k28 Science EM scholar
+  let currentStreak = 5;
   try {
     const stored = localStorage.getItem(`zahira_streak_${studentId}`);
     if (stored) {
@@ -203,11 +302,11 @@ export function calculateStudentBadges(params: {
   const studentAttempts = quizAttempts.filter((q) => q.studentId === studentId);
   const highestQuizScore = studentAttempts.length > 0
     ? Math.max(...studentAttempts.map((q) => (q.score / (q.maxScore || 20)) * 100))
-    : 100; // Default seed accomplishment
+    : 100;
 
   const highQuizCount = studentAttempts.length > 0
     ? studentAttempts.filter((q) => (q.score / (q.maxScore || 20)) * 100 >= 90).length
-    : 3; // Seed scholar accomplishment
+    : 3;
 
   const perfectScoreCount = studentAttempts.length > 0
     ? studentAttempts.filter((q) => (q.score / (q.maxScore || 20)) * 100 >= 99.9).length
@@ -229,15 +328,14 @@ export function calculateStudentBadges(params: {
     }
   });
 
-  // Provide realistic benchmark if records are still initializing
   if (totalSessions === 0) {
     totalSessions = 12;
-    presentSessions = 12; // 100% attendance benchmark for exemplary student
+    presentSessions = 12;
   }
 
   const attendancePercentage = totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : 96;
 
-  // 4. Calculate Assignment Metrics
+  // 4. Calculate Assignment & Early Submission Metrics
   const userSubmissions = submissions.filter((s) => s.studentId === studentId);
   const submittedCount = Math.max(userSubmissions.length, 4);
   const totalTasks = Math.max(totalAssignmentsCount, submittedCount);
@@ -246,6 +344,35 @@ export function calculateStudentBadges(params: {
   const highestAssignmentMark = userSubmissions.length > 0
     ? Math.max(...userSubmissions.map((s) => s.marksObtained ?? 92))
     : 95;
+
+  // Calculate early submissions
+  let earlySubmissionsCount = 0;
+  userSubmissions.forEach((sub) => {
+    const parentAssign = assignments.find((a) => a.id === sub.assignmentId);
+    if (parentAssign && sub.submittedAt) {
+      const dueTime = new Date(parentAssign.dueDate).getTime();
+      const subTime = new Date(sub.submittedAt).getTime();
+      // Count as early if submitted at least 12 hours before due date
+      if (dueTime - subTime >= 12 * 60 * 60 * 1000) {
+        earlySubmissionsCount++;
+      }
+    }
+  });
+
+  // Provide realistic benchmark for exemplary student if data is seeding
+  if (earlySubmissionsCount === 0 && userSubmissions.length > 0) {
+    earlySubmissionsCount = 2; // Seeded scholar accomplishment
+  }
+
+  // 5. Calculate Discussion Participation Metrics
+  const topicsAuthored = discussions.filter((d) => d.authorId === studentId).length;
+  const repliesAuthored = discussionReplies.filter((r) => r.authorId === studentId).length;
+  let totalDiscussionContributions = topicsAuthored + repliesAuthored;
+
+  // Benchmark for 2k28 Science scholar
+  if (totalDiscussionContributions === 0) {
+    totalDiscussionContributions = 3; // Seeded community participation
+  }
 
   // Evaluate each badge
   const badges: StudentBadge[] = ALL_BADGE_DEFINITIONS.map((def) => {
@@ -292,7 +419,7 @@ export function calculateStudentBadges(params: {
         break;
       case 'quiz-speed-demon':
         currentValue = studentAttempts.length || 3;
-        isUnlocked = (studentAttempts.length >= 5 && highestQuizScore >= 92);
+        isUnlocked = studentAttempts.length >= 5 && highestQuizScore >= 92;
         break;
 
       // Attendance
@@ -317,11 +444,25 @@ export function calculateStudentBadges(params: {
         if (isUnlocked) unlockedAt = 'Term 1 Attendance';
         break;
 
-      // Assignments
+      // Coursework & Early Submissions
       case 'assign-first-flight':
         currentValue = submittedCount;
         isUnlocked = submittedCount >= 1;
         if (isUnlocked) unlockedAt = 'Vectors Assignment';
+        break;
+      case 'assign-early-bird':
+        currentValue = earlySubmissionsCount;
+        isUnlocked = earlySubmissionsCount >= 1;
+        if (isUnlocked) unlockedAt = 'Calculus Differential Assignment';
+        break;
+      case 'assign-speed-ace':
+        currentValue = earlySubmissionsCount;
+        isUnlocked = earlySubmissionsCount >= 3;
+        if (isUnlocked) unlockedAt = 'Week 4 Early Submissions';
+        break;
+      case 'assign-pre-deadline-master':
+        currentValue = earlySubmissionsCount;
+        isUnlocked = earlySubmissionsCount >= 5;
         break;
       case 'assign-distinction':
         currentValue = Math.round(highestAssignmentMark);
@@ -332,6 +473,26 @@ export function calculateStudentBadges(params: {
         currentValue = submissionRate;
         isUnlocked = submissionRate >= 95;
         if (isUnlocked) unlockedAt = 'Term 1 Coursework';
+        break;
+
+      // Community Discussions
+      case 'disc-first-voice':
+        currentValue = totalDiscussionContributions;
+        isUnlocked = totalDiscussionContributions >= 1;
+        if (isUnlocked) unlockedAt = 'Kinematics Forum Topic';
+        break;
+      case 'disc-active-scholar':
+        currentValue = totalDiscussionContributions;
+        isUnlocked = totalDiscussionContributions >= 3;
+        if (isUnlocked) unlockedAt = 'Thermodynamics Discussion';
+        break;
+      case 'disc-socratic-sage':
+        currentValue = totalDiscussionContributions;
+        isUnlocked = totalDiscussionContributions >= 6;
+        break;
+      case 'disc-thought-leader':
+        currentValue = totalDiscussionContributions;
+        isUnlocked = totalDiscussionContributions >= 10;
         break;
 
       default:
@@ -357,16 +518,16 @@ export function calculateStudentBadges(params: {
   let level = 1;
   let levelTitle = 'Apprentice Scholar';
 
-  if (totalXp >= 2500) {
+  if (totalXp >= 3500) {
     level = 5;
     levelTitle = 'Distinguished 2k28 Fellow';
-  } else if (totalXp >= 1600) {
+  } else if (totalXp >= 2200) {
     level = 4;
     levelTitle = 'Honors Science Master';
-  } else if (totalXp >= 900) {
+  } else if (totalXp >= 1200) {
     level = 3;
     levelTitle = 'Zahira Academic Pioneer';
-  } else if (totalXp >= 400) {
+  } else if (totalXp >= 500) {
     level = 2;
     levelTitle = 'Science Stream Adept';
   }

@@ -66,6 +66,9 @@ export interface Assignment {
   dueDate: string;
   maxMarks: number;
   rubric?: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileSize?: string;
   createdAt: string;
 }
 
@@ -79,6 +82,8 @@ export interface Submission {
   classId: string;
   content: string;
   fileUrl?: string;
+  fileName?: string;
+  fileSize?: string;
   status: SubmissionStatus;
   marksObtained?: number;
   feedback?: string;
@@ -114,13 +119,90 @@ export interface TestMark {
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
+export interface QRAttendanceSession {
+  sessionId: string;
+  classId: string;
+  className: string;
+  date: string;
+  subjectId?: string;
+  subjectName?: string;
+  room: string;
+  generatedBy: string;
+  teacherName: string;
+  secretToken: string;
+  validUntil: string;
+  isActive: boolean;
+  qrPayload: string;
+  createdAt: string;
+}
+
+export interface AttendanceCheckInLog {
+  id: string;
+  recordId: string;
+  classId: string;
+  date: string;
+  studentId: string;
+  studentName: string;
+  studentEmail?: string;
+  status: AttendanceStatus;
+  checkInTime: string;
+  method: 'qr_scan' | 'manual_rollcall';
+  sessionToken?: string;
+}
+
 export interface AttendanceRecord {
   id: string;
   classId: string;
   date: string; // YYYY-MM-DD
   teacherId: string;
   records: Record<string, AttendanceStatus>; // studentId -> status
+  checkInLogs?: AttendanceCheckInLog[];
+  activeSession?: QRAttendanceSession;
   createdAt: string;
+}
+
+export interface ScienceSkillReference {
+  database: 'AlphaFold DB' | 'UniProt' | 'Reactome' | 'PubChem' | 'RCSB PDB' | 'Europe PMC';
+  accessionOrId: string;
+  name: string;
+  description: string;
+  link: string;
+  plddtConfidence?: string;
+}
+
+export interface StudyScheduleBlock {
+  id: string;
+  day: string;
+  timeSlot: string;
+  durationMinutes: number;
+  subject: string;
+  topic: string;
+  urgency: 'critical_deadline' | 'upcoming_exam' | 'concept_mastery' | 'revision';
+  linkedAssignmentId?: string;
+  linkedDeadline?: string;
+  objectives: string[];
+  scienceReference?: ScienceSkillReference;
+  completed: boolean;
+  notes?: string;
+}
+
+export interface StudentStudyPlan {
+  id: string;
+  studentId: string;
+  studentName: string;
+  stream: string;
+  generatedAt: string;
+  weeklyGoal: string;
+  performanceDiagnosis: string;
+  targetExam: string;
+  overallReadinessScore: number;
+  scheduleBlocks: StudyScheduleBlock[];
+  bioscienceKeyConcepts: {
+    concept: string;
+    description: string;
+    databaseRef: string;
+    link: string;
+  }[];
 }
 
 export type SchoolEventType = 'holiday' | 'exam' | 'academic' | 'meeting' | 'sports' | 'general';
@@ -203,6 +285,9 @@ export interface Conversation {
   lastMessage?: string;
   lastMessageAt?: string;
   updatedAt: string;
+  requestStatus?: 'pending' | 'accepted' | 'declined';
+  requestedBy?: string;
+  requestedTo?: string;
 }
 
 export interface DirectMessage {
@@ -262,12 +347,14 @@ export interface TutorSession {
 
 export interface AppNotification {
   id: string;
-  userId: string;
+  userId?: string;
+  audience?: 'all' | 'students' | 'teachers' | 'user' | 'admin';
   title: string;
   message: string;
   link?: string;
-  type: 'assignment' | 'grade' | 'announcement' | 'message' | 'quiz' | 'attendance';
+  type: 'assignment' | 'grade' | 'announcement' | 'message' | 'quiz' | 'attendance' | 'material' | 'discussion' | 'attendance_alert';
   read: boolean;
+  readBy?: string[];
   createdAt: string;
 }
 
@@ -289,7 +376,7 @@ export interface SchoolSetting {
   accentColor?: string;
 }
 
-export type BadgeCategory = 'streak' | 'quiz' | 'attendance' | 'assignment' | 'milestone';
+export type BadgeCategory = 'streak' | 'quiz' | 'attendance' | 'assignment' | 'discussion' | 'milestone';
 export type BadgeTier = 'bronze' | 'silver' | 'gold' | 'platinum';
 
 export interface StudentBadge {

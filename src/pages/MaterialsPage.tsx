@@ -13,12 +13,18 @@ import {
   CheckCircle2,
   BookOpen,
   Sparkles,
+  Upload,
+  File,
+  AlertCircle,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { LearningMaterial, Subject } from '../types';
 import { SEED_MATERIALS, SEED_SUBJECTS } from '../services/dataService';
+import { broadcastSystemNotification } from '../services/notificationService';
 
 export const MaterialsPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -35,7 +41,12 @@ export const MaterialsPage: React.FC = () => {
   const [newDesc, setNewDesc] = useState('');
   const [newSubjectId, setNewSubjectId] = useState('sub-cmath');
   const [newType, setNewType] = useState<'pdf' | 'document' | 'presentation' | 'image' | 'link'>('pdf');
-  const [newLink, setNewLink] = useState('https://cdn.example.org/materials/lecture-notes.pdf');
+  const [newLink, setNewLink] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileBase64, setFileBase64] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [useManualUrl, setUseManualUrl] = useState(false);
 
   // Real-time listener for materials
   useEffect(() => {
@@ -70,30 +81,116 @@ export const MaterialsPage: React.FC = () => {
     return () => unsub();
   }, []);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFileError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+    if (file.size > MAX_SIZE) {
+      setFileError(`File size exceeds the 10 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a file under 10 MB.`);
+      setSelectedFile(null);
+      setFileBase64(null);
+      return;
+    }
+
+    setSelectedFile(file);
+    if (!newTitle.trim()) {
+      // Auto-populate title with cleaned file name
+      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+      setNewTitle(cleanName);
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFileBase64(reader.result as string);
+    };
+    reader.onerror = () => {
+      setFileError('Failed to read the file from your device. Please try again.');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleUploadMaterial = async () => {
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim()) {
+      setFileError('Please provide a title for this study material.');
+      return;
+    }
+
+    if (!selectedFile && !newLink.trim()) {
+      setFileError('Please select a PDF file from your device or specify a valid link.');
+      return;
+    }
+
     try {
+      setIsUploading(true);
+      setFileError(null);
+
+      let finalUrl = newLink.trim();
+      let finalSize = '2.5 MB';
+
+      if (selectedFile && fileBase64) {
+        try {
+          const uploadRes = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: selectedFile.name,
+              fileData: fileBase64,
+              fileType: selectedFile.type || 'application/pdf',
+            }),
+          });
+
+          if (!uploadRes.ok) {
+            const errData = await uploadRes.json().catch(() => ({}));
+            throw new Error(errData.error || 'Server upload failed');
+          }
+
+          const uploadData = await uploadRes.json();
+          finalUrl = uploadData.url || fileBase64;
+          finalSize = uploadData.size || `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB`;
+        } catch (uploadErr: any) {
+          console.warn('Backend upload notice, using persistent data URL:', uploadErr);
+          finalUrl = fileBase64;
+          finalSize = `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB`;
+        }
+      }
+
       const id = `mat-${Date.now()}`;
       const mat: LearningMaterial = {
         id,
         title: newTitle.trim(),
-        description: newDesc.trim(),
+        description: newDesc.trim() || 'Curriculum resource for Zahira College 2k28 Science EM.',
         classId: 'class-2k28-science-em',
         subjectId: newSubjectId,
         teacherId: userProfile?.userId || 'admin_jaasim',
-        teacherName: userProfile?.fullName || 'M. N. M. Jaasim',
+        teacherName: userProfile?.fullName || 'Faculty Lead',
         fileType: newType,
-        fileUrl: newLink,
-        fileSize: '3.2 MB',
+        fileUrl: finalUrl,
+        fileSize: finalSize,
         createdAt: new Date().toISOString(),
       };
 
       await setDoc(doc(db, 'learningMaterials', id), mat);
+      await broadcastSystemNotification({
+        title: 'New Study Material Uploaded',
+        message: `${userProfile?.fullName || 'Faculty'} uploaded "${mat.title}" for 2k28 Science EM.`,
+        type: 'material',
+        link: 'materials',
+      });
+
       setShowUploadModal(false);
       setNewTitle('');
       setNewDesc('');
-    } catch (e) {
+      setSelectedFile(null);
+      setFileBase64(null);
+      setNewLink('');
+      setFileError(null);
+    } catch (e: any) {
       console.error('Failed to publish material:', e);
+      setFileError(e.message || 'Failed to publish material. Please try again.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -380,33 +477,137 @@ export const MaterialsPage: React.FC = () => {
                 />
               </div>
 
+              {/* Device File Upload Section */}
               <div>
-                <label className="font-bold text-blue-950 uppercase tracking-wider block mb-1 text-[11px]">
-                  Resource URL
-                </label>
-                <input
-                  type="text"
-                  value={newLink}
-                  onChange={(e) => setNewLink(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-slate-800 font-mono text-xs focus:bg-white focus:outline-none"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-blue-950 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5 text-blue-700" />
+                    <span>Upload File From Device (Max 10 MB)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseManualUrl(!useManualUrl);
+                      setFileError(null);
+                    }}
+                    className="text-[10px] font-semibold text-blue-700 hover:underline"
+                  >
+                    {useManualUrl ? 'Switch to Device Upload' : 'Or use URL link'}
+                  </button>
+                </div>
+
+                {!useManualUrl ? (
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="material-file-input"
+                      className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
+                        selectedFile
+                          ? 'border-emerald-300 bg-emerald-50/40'
+                          : 'border-blue-200 bg-blue-50/30 hover:bg-blue-50/60 hover:border-blue-300'
+                      }`}
+                    >
+                      <input
+                        id="material-file-input"
+                        type="file"
+                        accept=".pdf,application/pdf,.doc,.docx,.ppt,.pptx"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+
+                      {selectedFile ? (
+                        <div className="flex items-center gap-3 text-left w-full">
+                          <div className="h-10 w-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                            <File className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-emerald-950 text-xs truncate">{selectedFile.name}</p>
+                            <p className="text-[11px] text-emerald-700">
+                              {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • Ready to upload (under 10 MB limit)
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedFile(null);
+                              setFileBase64(null);
+                            }}
+                            className="p-1 rounded-lg hover:bg-emerald-200 text-emerald-800"
+                            title="Remove file"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="h-9 w-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center mx-auto mb-1">
+                            <Upload className="w-4 h-4" />
+                          </div>
+                          <p className="font-bold text-blue-950 text-xs">
+                            Select PDF from your device
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            Direct upload without needing any URL • Max 10 MB file size
+                          </p>
+                        </div>
+                      )}
+                    </label>
+
+                    {fileError && (
+                      <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2 text-red-700 text-[11px]">
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        <span>{fileError}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      value={newLink}
+                      onChange={(e) => setNewLink(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-slate-800 font-mono text-xs focus:bg-white focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Direct cloud document or website resource link
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowUploadModal(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-semibold"
+                  disabled={isUploading}
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setSelectedFile(null);
+                    setFileBase64(null);
+                    setFileError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-semibold disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleUploadMaterial}
-                  className="px-5 py-2.5 rounded-xl bg-blue-900 text-white font-bold text-xs hover:bg-blue-950 shadow-xs"
+                  disabled={isUploading || (!selectedFile && !newLink.trim())}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-900 text-white font-bold text-xs hover:bg-blue-950 shadow-xs disabled:opacity-50 transition-colors"
                 >
-                  Publish Material
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      <span>Uploading (Max 10MB)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-white" />
+                      <span>Publish Material</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

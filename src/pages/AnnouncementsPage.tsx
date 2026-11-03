@@ -15,6 +15,7 @@ import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { Announcement, AnnouncementAudience } from '../types';
+import { broadcastSystemNotification } from '../services/notificationService';
 
 export const AnnouncementsPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -66,6 +67,12 @@ export const AnnouncementsPage: React.FC = () => {
       };
 
       await setDoc(doc(db, 'announcements', id), ann);
+      await broadcastSystemNotification({
+        title: 'New College Announcement',
+        message: ann.title + ': ' + ann.content.slice(0, 90),
+        type: 'announcement',
+        link: 'announcements',
+      });
       setShowCreateModal(false);
       setNewTitle('');
       setNewContent('');

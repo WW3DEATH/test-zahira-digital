@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, Shield, AlertCircle, GraduationCap, BookOpen } from 'lucide-react';
+import { X, Lock, Mail, User, Shield, AlertCircle, GraduationCap, BookOpen, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface AuthModalProps {
@@ -13,10 +13,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'student' | 'teacher'>('student');
+  const [selectedRole, setSelectedRole] = useState<'student' | 'teacher' | 'parent'>('student');
   const [selectedSubject, setSelectedSubject] = useState('Combined Mathematics');
   const [customSubject, setCustomSubject] = useState('');
   const [studentStream, setStudentStream] = useState('');
+  const [studentNameOrIndex, setStudentNameOrIndex] = useState('');
+  const [parentPhone, setParentPhone] = useState('');
+  const [parentRelationship, setParentRelationship] = useState('Father');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -46,6 +49,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         await signUpWithEmail(email, password, name, selectedRole, {
           subject: selectedRole === 'teacher' ? finalSubject : undefined,
           stream: selectedRole === 'student' ? studentStream.trim() : undefined,
+          studentNameOrIndex: selectedRole === 'parent' ? studentNameOrIndex.trim() : undefined,
+          phone: selectedRole === 'parent' ? parentPhone.trim() : undefined,
+          relationship: selectedRole === 'parent' ? parentRelationship : undefined,
         });
       } else {
         await signInWithEmail(email, password);
@@ -135,86 +141,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {/* Email form */}
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
-          {!isSignUp && (
-            <div className="mb-2">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1.5">
-                Quick Access Profiles:
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setEmail('mnmjaasim@gmail.com');
-                    setPassword('jaasim2010');
-                    try {
-                      setLoading(true);
-                      await signInWithEmail('mnmjaasim@gmail.com', 'jaasim2010');
-                      onClose();
-                    } catch (e: any) {
-                      setError(e.message || 'Quick login failed');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  className="p-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 text-[11px] font-bold text-left transition-all flex items-center justify-between shadow-2xs"
-                >
-                  <span className="truncate">M. N. M. Jaasim</span>
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded-md bg-red-600 text-white font-extrabold shrink-0">Admin</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setEmail('scholar@zahira.lk');
-                    setPassword('zahira2028');
-                    try {
-                      setLoading(true);
-                      await signInWithEmail('scholar@zahira.lk', 'zahira2028');
-                      onClose();
-                    } catch (e: any) {
-                      setError(e.message || 'Quick login failed');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  className="p-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 text-[11px] font-bold text-left transition-all flex items-center justify-between shadow-2xs"
-                >
-                  <span className="truncate">Science Scholar</span>
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-extrabold shrink-0">Student</span>
-                </button>
-              </div>
-            </div>
-          )}
-
           {isSignUp && (
             <>
               <div>
                 <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[11px]">
                   Sign Up As (Choose Role)
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setSelectedRole('student')}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl p-2.5 font-bold border transition-all ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl font-bold border transition-all text-center ${
                       selectedRole === 'student'
                         ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    <GraduationCap className="w-4 h-4 text-red-400" />
-                    <span>Student</span>
+                    <GraduationCap className="w-4 h-4 text-red-400 mb-0.5" />
+                    <span className="text-[11px]">Student</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedRole('teacher')}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl p-2.5 font-bold border transition-all ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl font-bold border transition-all text-center ${
                       selectedRole === 'teacher'
                         ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    <BookOpen className="w-4 h-4 text-blue-300" />
-                    <span>Teacher / Faculty</span>
+                    <BookOpen className="w-4 h-4 text-blue-300 mb-0.5" />
+                    <span className="text-[11px]">Teacher</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRole('parent')}
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl font-bold border transition-all text-center ${
+                      selectedRole === 'parent'
+                        ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Users className="w-4 h-4 text-amber-400 mb-0.5" />
+                    <span className="text-[11px]">Parent</span>
                   </button>
                 </div>
               </div>
@@ -232,6 +200,59 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   className="w-full rounded-xl border border-stone-200 bg-stone-50 p-2.5 text-stone-800 focus:bg-white focus:outline-none"
                 />
               </div>
+
+              {selectedRole === 'parent' && (
+                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-amber-900 font-bold text-[11px]">
+                    <Shield className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Parent / Guardian Portal Registration</span>
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-700 uppercase tracking-wider block mb-1 text-[10px]">
+                      Child&apos;s Full Name or Index No.
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={studentNameOrIndex}
+                      onChange={(e) => setStudentNameOrIndex(e.target.value)}
+                      placeholder="e.g. M. R. Mohamed Aadhil (2K28-SCI-001)"
+                      className="w-full rounded-lg border border-amber-300 bg-white p-2 text-slate-800 text-xs focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="font-semibold text-slate-700 uppercase tracking-wider block mb-1 text-[10px]">
+                        Relationship
+                      </label>
+                      <select
+                        value={parentRelationship}
+                        onChange={(e) => setParentRelationship(e.target.value)}
+                        className="w-full rounded-lg border border-amber-300 bg-white p-2 text-slate-800 text-xs focus:outline-none"
+                      >
+                        <option value="Father">Father</option>
+                        <option value="Mother">Mother</option>
+                        <option value="Legal Guardian">Legal Guardian</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-semibold text-slate-700 uppercase tracking-wider block mb-1 text-[10px]">
+                        Phone (for SMS alerts)
+                      </label>
+                      <input
+                        type="tel"
+                        value={parentPhone}
+                        onChange={(e) => setParentPhone(e.target.value)}
+                        placeholder="e.g. +94 77 123 4567"
+                        className="w-full rounded-lg border border-amber-300 bg-white p-2 text-slate-800 text-xs focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-amber-800">
+                    Parent accounts provide certified view-only tracking of your child&apos;s attendance, test marks, and school circulars.
+                  </p>
+                </div>
+              )}
 
               {selectedRole === 'teacher' && (
                 <div>
@@ -338,11 +359,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             disabled={loading}
             className="w-full rounded-xl bg-blue-900 hover:bg-blue-950 text-white font-bold py-2.5 text-xs transition-colors shadow-md mt-2 disabled:opacity-50"
           >
-            {loading ? 'Processing...' : isSignUp ? `Sign Up as ${selectedRole.toUpperCase()}` : 'Sign In'}
+            {loading
+              ? 'Processing...'
+              : isSignUp
+              ? `Sign Up as ${selectedRole === 'parent' ? 'PARENT / GUARDIAN' : selectedRole.toUpperCase()}`
+              : 'Sign In'}
           </button>
         </form>
 
-        <div className="text-center mt-4 pt-3 border-t border-stone-100 text-xs text-stone-500">
+        <div className="text-center mt-4 pt-3 border-t border-stone-100 text-xs text-stone-500 space-y-2">
           {isSignUp ? (
             <p>
               Already registered?{' '}
@@ -355,16 +380,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </button>
             </p>
           ) : (
-            <p>
-              New scholar or faculty member?{' '}
+            <>
+              <p>
+                New user?{' '}
+                <button
+                  type="button"
+                  onClick={() => setIsSignUp(true)}
+                  className="font-bold text-stone-900 hover:underline"
+                >
+                  Create Account (Student, Teacher, Parent)
+                </button>
+              </p>
               <button
                 type="button"
-                onClick={() => setIsSignUp(true)}
-                className="font-bold text-stone-900 hover:underline"
+                onClick={() => {
+                  setIsSignUp(true);
+                  setSelectedRole('parent');
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
               >
-                Create Account (Choose Teacher/Student)
+                <Users className="w-3.5 h-3.5 text-amber-700" />
+                <span>Are you a Parent? Sign up for Parent Portal Account</span>
               </button>
-            </p>
+            </>
           )}
         </div>
       </div>

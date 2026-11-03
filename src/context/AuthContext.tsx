@@ -13,6 +13,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  deleteDoc,
   collection,
   query,
   where,
@@ -37,12 +38,20 @@ interface AuthContextType {
     email: string,
     pass: string,
     name: string,
-    role: 'teacher' | 'student',
-    extra?: { subject?: string; stream?: string }
+    role: 'teacher' | 'student' | 'parent',
+    extra?: {
+      subject?: string;
+      stream?: string;
+      studentNameOrIndex?: string;
+      phone?: string;
+      relationship?: string;
+    }
   ) => Promise<void>;
   signOut: () => Promise<void>;
   notifications: AppNotification[];
   markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
+  clearNotification: (id: string) => Promise<void>;
 }
 
 // In-memory token cache (never stored in localStorage per security guidelines)
@@ -169,7 +178,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Real-time notifications listener
+  // Determine active profile and role - no auto-logged-in account
+  const effectiveProfile = userProfile;
+  const activeRole: UserRole = userProfile ? userProfile.role : 'guest';
+
+  // Real-time notifications listener for personal & campus-wide broadcast alerts
   useEffect(() => {
     const currentId = impersonatedProfile?.userId || userProfile?.userId;
     if (!currentId) {
@@ -178,22 +191,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const notifQuery = query(
-        collection(db, 'notifications'),
-        where('userId', '==', currentId)
-      );
-
-      const unsubNotif = onSnapshot(notifQuery, (snapshot) => {
+      const unsubNotif = onSnapshot(collection(db, 'notifications'), (snapshot) => {
         const notifs: AppNotification[] = [];
-        snapshot.forEach((d) => notifs.push({ id: d.id, ...d.data() } as AppNotification));
-        setNotifications(notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+        snapshot.forEach((d) => {
+          const data = { id: d.id, ...d.data() } as AppNotification;
+          // Check if targeted to a specific user (e.g. direct messages, private alerts)
+          const isTargetedUser = data.userId && data.userId !== 'all';
+
+          let isForMe = false;
+          if (isTargetedUser) {
+            // Direct messages and user-specific alerts only reach the intended receiver
+            isForMe = data.userId === currentId;
+          } else if (data.audience === 'admin') {
+            // Low attendance and administrative alerts only reach Admin portal
+            isForMe = activeRole === 'admin';
+          } else if (data.audience === 'teachers') {
+            isForMe = activeRole === 'teacher' || activeRole === 'admin';
+          } else if (data.audience === 'students') {
+            isForMe = activeRole === 'student';
+          } else if (data.audience === 'all' || !data.audience) {
+            // Broadcasts (study materials, coursework, assignments, announcements)
+            isForMe = true;
+          }
+
+          if (isForMe) {
+            const isRead = data.read || (data.readBy && data.readBy.includes(currentId));
+            notifs.push({
+              ...data,
+              read: !!isRead,
+            });
+          }
+        });
+
+        setNotifications(
+          notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        );
       });
 
       return () => unsubNotif();
     } catch {
       // ignore
     }
-  }, [userProfile, impersonatedProfile]);
+  }, [userProfile, impersonatedProfile, activeRole]);
 
   const setImpersonatedRole = (_role: UserRole | null) => {
     // Demo role selection disabled
@@ -374,8 +413,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     pass: string,
     name: string,
-    role: 'teacher' | 'student',
-    extra?: { subject?: string; stream?: string }
+    role: 'teacher' | 'student' | 'parent',
+    extra?: {
+      subject?: string;
+      stream?: string;
+      studentNameOrIndex?: string;
+      phone?: string;
+      relationship?: string;
+    }
   ) => {
     try {
       const credential = await createUserWithEmailAndPassword(auth, email, pass);
@@ -389,6 +434,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
         } else if (assignedRole === 'student' && extra?.stream) {
           bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+        } else if (assignedRole === 'parent') {
+          bioText = `${name} (${extra?.relationship || 'Parent'}) of ${extra?.studentNameOrIndex || '2k28 Science EM Scholar'} - Zahira College`;
         }
 
         const profile: UserProfile = {
@@ -397,8 +444,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: name,
           role: assignedRole,
           avatarUrl: '',
+          phone: extra?.phone || '',
           subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
           stream: (assignedRole === 'student' ? extra?.stream : '') || '',
+          linkedStudentIds: assignedRole === 'parent' && extra?.studentNameOrIndex ? [extra.studentNameOrIndex] : [],
           enrolledClassIds: ['class-2k28-science-em'],
           assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : [],
           bio: bioText,
@@ -426,6 +475,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
         } else if (assignedRole === 'student' && extra?.stream) {
           bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+        } else if (assignedRole === 'parent') {
+          bioText = `${name} (${extra?.relationship || 'Parent'}) of ${extra?.studentNameOrIndex || '2k28 Science EM Scholar'} - Zahira College`;
         }
 
         const profile: UserProfile = {
@@ -434,8 +485,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: name || (isAdmin ? 'M. N. M. Jaasim' : email.split('@')[0]),
           role: assignedRole,
           avatarUrl: '',
+          phone: extra?.phone || '',
           subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
           stream: (assignedRole === 'student' ? extra?.stream : '') || '',
+          linkedStudentIds: assignedRole === 'parent' && extra?.studentNameOrIndex ? [extra.studentNameOrIndex] : [],
           enrolledClassIds: ['class-2k28-science-em'],
           assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : [],
           bio: bioText,
@@ -470,16 +523,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const markNotificationRead = async (id: string) => {
+    const currentId = userProfile?.userId;
     try {
-      await setDoc(doc(db, 'notifications', id), { read: true }, { merge: true });
+      const targetNotif = notifications.find((n) => n.id === id);
+      if (targetNotif && targetNotif.userId === 'all') {
+        const readBy = targetNotif.readBy ? [...targetNotif.readBy] : [];
+        if (currentId && !readBy.includes(currentId)) {
+          readBy.push(currentId);
+        }
+        await setDoc(doc(db, 'notifications', id), { readBy }, { merge: true });
+      } else {
+        await setDoc(doc(db, 'notifications', id), { read: true }, { merge: true });
+      }
     } catch (e) {
       console.warn(e);
     }
   };
 
-  // Determine active profile and role - no auto-logged-in account
-  const effectiveProfile = userProfile;
-  const activeRole: UserRole = userProfile ? userProfile.role : 'guest';
+  const markAllNotificationsRead = async () => {
+    const currentId = userProfile?.userId;
+    try {
+      for (const n of notifications.filter((notif) => !notif.read)) {
+        await markNotificationRead(n.id);
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  const clearNotification = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'notifications', id));
+    } catch (e) {
+      console.warn(e);
+    }
+  };
 
   return (
     <AuthContext.Provider
@@ -498,6 +576,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOut,
         notifications,
         markNotificationRead,
+        markAllNotificationsRead,
+        clearNotification,
       }}
     >
       {children}

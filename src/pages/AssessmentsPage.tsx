@@ -271,13 +271,7 @@ export const AssessmentsPage: React.FC = () => {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
-      doc.text('Official Seal of the Academic Board & Administrator:', 20, y);
-      doc.setFont('helvetica', 'bold');
-      doc.text('M. N. M. Jaasim, Academic Lead - Zahira College 2k28 Science EM', 20, y + 7);
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`Digitally sealed and generated on ${new Date().toLocaleDateString()}`, 115, y + 7);
+      doc.text('Official Examination Report • Zahira College Mawanella', 20, y);
 
       doc.save(`Report_Card_${activeStudent.fullName.replace(/\s+/g, '_')}_2k28_Science.pdf`);
     } catch (e) {

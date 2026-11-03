@@ -19,6 +19,9 @@ import {
   ChevronRight,
   Info,
   X,
+  Clock,
+  MessageSquare,
+  MessagesSquare,
 } from 'lucide-react';
 import { StudentBadge, StudentBadgeSummary, BadgeCategory, BadgeTier } from '../../types';
 
@@ -78,6 +81,12 @@ export const StudentBadgeSection: React.FC<StudentBadgeSectionProps> = ({ summar
         return <Star className={className} />;
       case 'CheckCheck':
         return <CheckCheck className={className} />;
+      case 'Clock':
+        return <Clock className={className} />;
+      case 'MessageSquare':
+        return <MessageSquare className={className} />;
+      case 'MessagesSquare':
+        return <MessagesSquare className={className} />;
       default:
         return <Award className={className} />;
     }
@@ -221,7 +230,18 @@ export const StudentBadgeSection: React.FC<StudentBadgeSectionProps> = ({ summar
           }`}
         >
           <FileText className="w-3 h-3 text-indigo-500" />
-          Assignments
+          Assignments & Early
+        </button>
+        <button
+          onClick={() => setSelectedCategory('discussion')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            selectedCategory === 'discussion'
+              ? 'bg-sky-600 text-white shadow-xs'
+              : 'bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+          }`}
+        >
+          <MessageSquare className="w-3 h-3 text-sky-500" />
+          Discussions
         </button>
       </div>
 
