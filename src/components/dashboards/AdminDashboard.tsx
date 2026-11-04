@@ -15,11 +15,18 @@ import {
   RefreshCw,
   ShieldCheck,
   MessageSquare,
+  CheckSquare,
+  Square,
+  CheckCircle2,
+  Search,
+  Check,
+  Layers,
+  Shield,
 } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { SchoolClass, Subject, UserProfile, Announcement } from '../../types';
-import { SEED_CLASSES, SEED_SUBJECTS, REAL_ADMIN_PROFILE, SEED_ANNOUNCEMENTS } from '../../services/dataService';
+import { SchoolClass, Subject, UserProfile, Announcement, UserRole } from '../../types';
+import { SEED_CLASSES, SEED_SUBJECTS, REAL_ADMIN_PROFILE, SEED_ANNOUNCEMENTS, SEED_INITIAL_USERS } from '../../services/dataService';
 
 interface AdminDashboardProps {
   onNavigate: (page: string) => void;
@@ -65,8 +72,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       unsubs.push(
         onSnapshot(collection(db, 'userProfiles'), (snap) => {
           const list: UserProfile[] = [];
-          snap.forEach((d) => list.push(d.data() as UserProfile));
-          setProfiles(list.length > 0 ? list : [REAL_ADMIN_PROFILE]);
+          snap.forEach((d) => {
+            const u = d.data() as UserProfile;
+            list.push({ ...u, userId: u.userId || d.id });
+          });
+          if (list.length > 0) {
+            if (!list.some((u) => u.email?.toLowerCase() === 'mnmjaasim@gmail.com')) {
+              list.unshift(REAL_ADMIN_PROFILE);
+            }
+            setProfiles(list);
+          } else {
+            setProfiles([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+          }
         })
       );
 
@@ -85,7 +102,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       console.warn('Real-time sync fallback:', e);
       setClasses(SEED_CLASSES);
       setSubjects(SEED_SUBJECTS);
-      setProfiles([REAL_ADMIN_PROFILE]);
+      setProfiles([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
       setAnnouncements(SEED_ANNOUNCEMENTS);
     } finally {
       setLoading(false);
@@ -95,6 +112,98 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       unsubs.forEach((u) => u());
     };
   }, []);
+
+  // Bulk Action Module State
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState<UserRole>('student');
+  const [bulkClassId, setBulkClassId] = useState<string>('class-2k28-science-em');
+  const [userRoleFilter, setUserRoleFilter] = useState<string>('all');
+  const [userSearchQuery, setUserSearchQuery] = useState<string>('');
+  const [bulkUpdating, setBulkUpdating] = useState<boolean>(false);
+  const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
+
+  const filteredUsers = profiles.filter((u) => {
+    const matchesRole = userRoleFilter === 'all' || u.role === userRoleFilter;
+    const matchesSearch =
+      (u.fullName || '').toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+      (u.email || '').toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+      (u.userId || '').toLowerCase().includes(userSearchQuery.toLowerCase());
+    return matchesRole && matchesSearch;
+  });
+
+  const handleToggleSelectAll = () => {
+    if (selectedUserIds.length === filteredUsers.length && filteredUsers.length > 0) {
+      setSelectedUserIds([]);
+    } else {
+      setSelectedUserIds(filteredUsers.map((u) => u.userId));
+    }
+  };
+
+  const handleToggleUser = (userId: string) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleBulkUpdateRoles = async () => {
+    if (selectedUserIds.length === 0) return;
+    setBulkUpdating(true);
+    setBulkFeedback(null);
+    try {
+      await Promise.all(
+        selectedUserIds.map((uid) =>
+          setDoc(doc(db, 'userProfiles', uid), { role: bulkRole }, { merge: true })
+        )
+      );
+      setBulkFeedback(`Successfully updated ${selectedUserIds.length} user account(s) to ${bulkRole.toUpperCase()} in Firestore.`);
+      setSelectedUserIds([]);
+    } catch (err) {
+      console.error('Bulk update role error:', err);
+      setBulkFeedback('Failed to apply bulk role changes. Check network connection.');
+    } finally {
+      setBulkUpdating(false);
+      setTimeout(() => setBulkFeedback(null), 5000);
+    }
+  };
+
+  const handleBulkUpdateClass = async () => {
+    if (selectedUserIds.length === 0) return;
+    setBulkUpdating(true);
+    setBulkFeedback(null);
+    try {
+      const selectedClassName = classes.find((c) => c.id === bulkClassId)?.name || bulkClassId;
+      await Promise.all(
+        selectedUserIds.map((uid) => {
+          const user = profiles.find((p) => p.userId === uid);
+          const currentAssigned = user?.assignedClassIds || [];
+          const currentEnrolled = user?.enrolledClassIds || [];
+          const updatedAssigned = Array.from(new Set([...currentAssigned, bulkClassId]));
+          const updatedEnrolled = Array.from(new Set([...currentEnrolled, bulkClassId]));
+          return setDoc(
+            doc(db, 'userProfiles', uid),
+            { assignedClassIds: updatedAssigned, enrolledClassIds: updatedEnrolled },
+            { merge: true }
+          );
+        })
+      );
+      setBulkFeedback(`Successfully assigned cohort "${selectedClassName}" to ${selectedUserIds.length} account(s).`);
+      setSelectedUserIds([]);
+    } catch (err) {
+      console.error('Bulk update class error:', err);
+      setBulkFeedback('Failed to apply bulk class assignments. Check network connection.');
+    } finally {
+      setBulkUpdating(false);
+      setTimeout(() => setBulkFeedback(null), 5000);
+    }
+  };
+
+  const handleSingleRoleUpdate = async (userId: string, newRole: UserRole) => {
+    try {
+      await setDoc(doc(db, 'userProfiles', userId), { role: newRole }, { merge: true });
+    } catch (err) {
+      console.error('Failed to update single user role:', err);
+    }
+  };
 
   const totalStudents = profiles.filter((p) => p.role === 'student').length;
   const totalFaculty = profiles.filter((p) => p.role === 'teacher').length;
@@ -340,6 +449,273 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             </button>
           </div>
         )}
+      </div>
+
+      {/* BULK ACTION MODULE: SIMULTANEOUS USER MANAGEMENT & COHORT ASSIGNMENT */}
+      <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500 text-stone-950 font-bold shadow-xs">
+                <Users className="w-4 h-4" />
+              </span>
+              <h3 className="font-serif text-lg font-bold text-stone-900">
+                Bulk User Account & Cohort Management Module
+              </h3>
+              <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold text-stone-700">
+                {profiles.length} Accounts Synchronized
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 mt-1">
+              Select multiple student, faculty, or parent accounts simultaneously to update roles or batch-assign class cohorts in real time.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => onNavigate('users_admin')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 hover:bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-700 transition-colors"
+            >
+              <Users className="w-3.5 h-3.5 text-stone-500" />
+              <span>Full Directory</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback Alert Banner */}
+        {bulkFeedback && (
+          <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3.5 text-xs font-semibold text-emerald-900 flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{bulkFeedback}</span>
+            </div>
+            <button onClick={() => setBulkFeedback(null)} className="text-emerald-700 hover:text-emerald-900 text-[11px] underline">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Bulk Control Bar when items are selected */}
+        {selectedUserIds.length > 0 && (
+          <div className="rounded-xl border-2 border-amber-400 bg-amber-50/70 p-4 shadow-sm animate-in slide-in-from-top-2 duration-200 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-stone-950 font-bold text-xs">
+                  {selectedUserIds.length}
+                </span>
+                <span className="text-xs font-bold text-stone-900">
+                  {selectedUserIds.length} account{selectedUserIds.length > 1 ? 's' : ''} selected for bulk operation
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedUserIds([])}
+                className="text-xs text-stone-500 hover:text-stone-800 underline self-start md:self-auto"
+              >
+                Clear Selection
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 border-t border-amber-200">
+              {/* Action 1: Bulk Role Update */}
+              <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-amber-200 shadow-2xs">
+                <span className="text-[11px] font-bold text-stone-700 shrink-0 uppercase tracking-wider">Set Role:</span>
+                <select
+                  value={bulkRole}
+                  onChange={(e) => setBulkRole(e.target.value as UserRole)}
+                  className="w-full rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs font-medium text-stone-800 focus:outline-none"
+                >
+                  <option value="student">Student</option>
+                  <option value="teacher">Teacher / Faculty</option>
+                  <option value="parent">Parent / Guardian</option>
+                  <option value="admin">Administrator</option>
+                </select>
+                <button
+                  onClick={handleBulkUpdateRoles}
+                  disabled={bulkUpdating}
+                  className="rounded-md bg-stone-900 hover:bg-stone-800 disabled:opacity-50 px-3 py-1 text-xs font-bold text-white transition-colors shrink-0"
+                >
+                  {bulkUpdating ? 'Applying...' : 'Apply Role'}
+                </button>
+              </div>
+
+              {/* Action 2: Bulk Class Cohort Assignment */}
+              <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-amber-200 shadow-2xs sm:col-span-1 lg:col-span-2">
+                <span className="text-[11px] font-bold text-stone-700 shrink-0 uppercase tracking-wider">Assign Cohort:</span>
+                <select
+                  value={bulkClassId}
+                  onChange={(e) => setBulkClassId(e.target.value)}
+                  className="w-full rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs font-medium text-stone-800 focus:outline-none"
+                >
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name} ({cls.grade})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleBulkUpdateClass}
+                  disabled={bulkUpdating}
+                  className="rounded-md bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-3 py-1 text-xs font-bold text-stone-950 transition-colors shrink-0"
+                >
+                  {bulkUpdating ? 'Assigning...' : 'Assign Cohort'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filter & Search Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            {['all', 'student', 'teacher', 'parent', 'admin'].map((role) => (
+              <button
+                key={role}
+                onClick={() => setUserRoleFilter(role)}
+                className={`rounded-lg px-2.5 py-1.5 font-bold capitalize transition-all shrink-0 ${
+                  userRoleFilter === role
+                    ? 'bg-stone-900 text-white shadow-2xs'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
+              >
+                {role === 'all' ? 'All Roles' : `${role}s`}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-stone-400" />
+            <input
+              type="text"
+              placeholder="Search by name, email, role..."
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 bg-stone-50 py-1.5 pl-8 pr-3 text-xs text-stone-800 focus:bg-white focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Multi-Select User Table */}
+        <div className="rounded-xl border border-stone-200 overflow-hidden shadow-2xs">
+          <div className="overflow-x-auto max-h-96">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-stone-50 border-b border-stone-200 text-stone-600 font-semibold uppercase tracking-wider text-[11px] sticky top-0 z-10">
+                <tr>
+                  <th className="py-3 px-3 w-10 text-center">
+                    <button
+                      onClick={handleToggleSelectAll}
+                      className="p-1 hover:bg-stone-200 rounded text-stone-700 transition-colors"
+                      title={selectedUserIds.length === filteredUsers.length && filteredUsers.length > 0 ? "Deselect All" : "Select All"}
+                    >
+                      {selectedUserIds.length === filteredUsers.length && filteredUsers.length > 0 ? (
+                        <CheckSquare className="w-4 h-4 text-amber-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-stone-400" />
+                      )}
+                    </button>
+                  </th>
+                  <th className="py-3 px-4">User Scholar / Faculty</th>
+                  <th className="py-3 px-4">Email</th>
+                  <th className="py-3 px-4">Current Role</th>
+                  <th className="py-3 px-4">Cohort Assignments</th>
+                  <th className="py-3 px-4 text-right">Quick Role Override</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 text-stone-800">
+                {filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-stone-400 text-xs">
+                      No matching user accounts found for &quot;{userSearchQuery}&quot;
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsers.map((user) => {
+                    const isSelected = selectedUserIds.includes(user.userId);
+                    return (
+                      <tr
+                        key={user.userId}
+                        className={`transition-colors ${
+                          isSelected ? 'bg-amber-50/60' : 'hover:bg-stone-50/60'
+                        }`}
+                      >
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            onClick={() => handleToggleUser(user.userId)}
+                            className="p-1 hover:bg-stone-200 rounded text-stone-700 transition-colors"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-amber-600" />
+                            ) : (
+                              <Square className="w-4 h-4 text-stone-300" />
+                            )}
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className="h-7 w-7 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
+                              {user.fullName ? user.fullName.charAt(0) : 'U'}
+                            </div>
+                            <div>
+                              <p className="font-bold text-stone-900 leading-tight">{user.fullName || 'Zahira Member'}</p>
+                              <p className="text-[10px] text-stone-500 truncate max-w-xs">
+                                {user.bio || 'Zahira College 2k28 Science EM Member'}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-stone-600 text-[11px]">
+                          {user.email || '—'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                              user.role === 'admin'
+                                ? 'bg-rose-100 text-rose-800'
+                                : user.role === 'teacher'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : user.role === 'student'
+                                ? 'bg-sky-100 text-sky-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {user.assignedClassIds && user.assignedClassIds.length > 0 ? (
+                              user.assignedClassIds.map((cId) => (
+                                <span
+                                  key={cId}
+                                  className="rounded bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold text-stone-700"
+                                >
+                                  {classes.find((c) => c.id === cId)?.name || cId}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[10px] text-stone-400 italic">No classes assigned</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <select
+                            value={user.role}
+                            onChange={(e) => handleSingleRoleUpdate(user.userId, e.target.value as UserRole)}
+                            className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none"
+                          >
+                            <option value="student">Student</option>
+                            <option value="teacher">Teacher</option>
+                            <option value="parent">Parent</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Cohorts & Recent Announcements Grid */}

@@ -127,6 +127,83 @@ export const REAL_ADMIN_PROFILE: UserProfile = {
   createdAt: new Date().toISOString(),
 };
 
+// Initial faculty, scholar, and guardian directory
+export const SEED_INITIAL_USERS: UserProfile[] = [
+  REAL_ADMIN_PROFILE,
+  {
+    userId: 'teacher_kareem',
+    email: 'kareem@zahira.lk',
+    fullName: 'Dr. A. Kareem',
+    role: 'teacher',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=256',
+    bio: 'Combined Mathematics Senior Faculty • Zahira College 2k28 Science EM',
+    subject: 'Combined Mathematics',
+    phone: '+94 71 456 7890',
+    assignedClassIds: ['class-2k28-science-em'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    userId: 'teacher_nusrath',
+    email: 'nusrath@zahira.lk',
+    fullName: 'Mrs. F. Nusrath',
+    role: 'teacher',
+    avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=256',
+    bio: 'Physics & Wave Optics Department Faculty • Zahira College 2k28 Science EM',
+    subject: 'Physics',
+    phone: '+94 76 987 6543',
+    assignedClassIds: ['class-2k28-science-em'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    userId: 'student_aadhil',
+    email: 'aadhil.2k28@zahira.edu',
+    fullName: 'M. R. Mohamed Aadhil',
+    role: 'student',
+    avatarUrl: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=256',
+    bio: 'Biological Science Scholar • Index: 2K28-SCI-001 • Zahira College 2k28 Science EM',
+    stream: 'Biological Science',
+    enrolledClassIds: ['class-2k28-science-em'],
+    assignedClassIds: ['class-2k28-science-em'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    userId: 'student_nuha',
+    email: 'nuha.2k28@zahira.edu',
+    fullName: 'F. A. Fatima Nuha',
+    role: 'student',
+    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=256',
+    bio: 'Physical Science Scholar • Index: 2K28-SCI-002 • Zahira College 2k28 Science EM',
+    stream: 'Physical Science',
+    enrolledClassIds: ['class-2k28-science-em'],
+    assignedClassIds: ['class-2k28-science-em'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    userId: 'student_faris',
+    email: 'faris.2k28@zahira.edu',
+    fullName: 'M. S. Salman Faris',
+    role: 'student',
+    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=256',
+    bio: 'Physical Science Scholar • Index: 2K28-SCI-003 • Zahira College 2k28 Science EM',
+    stream: 'Physical Science',
+    enrolledClassIds: ['class-2k28-science-em'],
+    assignedClassIds: ['class-2k28-science-em'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    userId: 'parent_rifky',
+    email: 'rifky.parent@zahira.edu',
+    fullName: 'M. I. Mohamed Rifky',
+    role: 'parent',
+    avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=256',
+    bio: 'Father of M. R. Mohamed Aadhil (2K28-SCI-001) • Zahira College Guardian Directory',
+    phone: '+94 77 889 9001',
+    linkedStudentIds: ['2K28-SCI-001'],
+    assignedClassIds: ['class-2k28-science-em'],
+    createdAt: new Date().toISOString(),
+  },
+];
+
 export const SEED_MATERIALS: LearningMaterial[] = [
   {
     id: 'mat-cmath-1',
@@ -392,7 +469,7 @@ export const SEED_SCHOOL_EVENTS: SchoolEvent[] = [
 
 export const SEED_SETTING: SchoolSetting = {
   id: 'main-settings',
-  schoolName: 'Zahira College Mawanella',
+  schoolName: 'Zahira College 2k28 Science EM',
   cohortName: '2k28 Science EM',
   academicYear: '2026-2028',
   terms: ['Term 1 (2026)', 'Term 2 (2027)', 'Term 3 (2028)'],
@@ -421,8 +498,14 @@ export async function seedInitialDatabaseIfEmpty() {
       }
     }
 
+    // Always ensure initial user profiles exist in Firestore so admin panel and auth work seamlessly
+    for (const u of SEED_INITIAL_USERS) {
+      await setDoc(doc(db, 'userProfiles', u.userId), u, { merge: true });
+    }
+    await setDoc(doc(db, 'userProfiles', REAL_ADMIN_PROFILE.userId), REAL_ADMIN_PROFILE, { merge: true });
+
     if (settingsSnap.exists() && settingsSnap.data()?.schoolName === 'Zahira College 2k28 Science EM') {
-      return; // Already up to date
+      return; // Core metadata already up to date
     }
 
     console.log('Synchronizing Zahira College 2k28 Science EM Firestore records...');
@@ -436,9 +519,6 @@ export async function seedInitialDatabaseIfEmpty() {
     for (const s of SEED_SUBJECTS) {
       await setDoc(doc(db, 'subjects', s.id), s, { merge: true });
     }
-
-    // Real Admin Profile
-    await setDoc(doc(db, 'userProfiles', REAL_ADMIN_PROFILE.userId), REAL_ADMIN_PROFILE, { merge: true });
 
     // Learning Materials
     for (const m of SEED_MATERIALS) {

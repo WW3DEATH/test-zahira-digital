@@ -33,6 +33,8 @@ import {
   Eye,
   RefreshCw,
   Filter,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   collection,
@@ -58,6 +60,7 @@ import {
   Conversation,
   DirectMessage,
 } from '../types';
+import { REAL_ADMIN_PROFILE, SEED_INITIAL_USERS } from '../services/dataService';
 
 type AdminTab =
   | 'branding'
@@ -69,10 +72,35 @@ type AdminTab =
   | 'calendar'
   | 'materials';
 
-export const AdminMasterControlPage: React.FC = () => {
+interface AdminMasterControlPageProps {
+  initialTab?: AdminTab;
+  onNavigate?: (page: string) => void;
+}
+
+export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
+  initialTab = 'branding',
+  onNavigate,
+}) => {
   const { siteConfig, updateSiteConfig } = useSiteConfig();
-  const [activeTab, setActiveTab] = useState<AdminTab>('branding');
+  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+
+  const tabsContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (tabsContainerRef.current) {
+      tabsContainerRef.current.scrollBy({
+        left: direction === 'left' ? -260 : 260,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Form state for Site Branding
   const [brandingForm, setBrandingForm] = useState<SchoolSetting>(siteConfig);
@@ -268,8 +296,15 @@ export const AdminMasterControlPage: React.FC = () => {
 
     const unsubUsers = onSnapshot(collection(db, 'userProfiles'), (snap) => {
       const list: UserProfile[] = [];
-      snap.forEach((d) => list.push({ userId: d.id, ...d.data() } as UserProfile));
-      setUsers(list);
+      snap.forEach((d) => list.push({ ...(d.data() as UserProfile), userId: d.id }));
+      if (list.length > 0) {
+        if (!list.some((u) => u.email?.toLowerCase() === 'mnmjaasim@gmail.com')) {
+          list.unshift(REAL_ADMIN_PROFILE);
+        }
+        setUsers(list);
+      } else {
+        setUsers([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+      }
     });
 
     const unsubAnnouncements = onSnapshot(collection(db, 'announcements'), (snap) => {
@@ -676,35 +711,80 @@ export const AdminMasterControlPage: React.FC = () => {
           )}
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-1.5 mt-6 overflow-x-auto pb-1 text-xs font-semibold scrollbar-none">
-          {[
-            { id: 'branding', label: 'Website Identity', icon: School },
-            { id: 'subjects', label: `Subjects (${subjects.length})`, icon: BookOpen },
-            { id: 'classes', label: `Classes (${classes.length})`, icon: GraduationCap },
-            { id: 'users', label: `Users & Roles (${users.length})`, icon: Users },
-            { id: 'chats', label: `Personal Chats (${conversations.length})`, icon: MessageSquare },
-            { id: 'announcements', label: `Notices (${announcements.length})`, icon: Bell },
-            { id: 'calendar', label: `Calendar Events (${events.length})`, icon: Calendar },
-            { id: 'materials', label: `Materials (${materials.length})`, icon: BookMarked },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as AdminTab)}
-                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 whitespace-nowrap transition-all ${
-                  isActive
-                    ? 'bg-white text-blue-950 shadow-md font-bold'
-                    : 'bg-white/10 text-white/90 hover:bg-white/20'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-red-600' : 'text-blue-200'}`} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        {/* Navigation Tabs with Horizontal Scroll Bar & Arrows */}
+        <div className="mt-6 relative">
+          <div className="flex items-center gap-2">
+            {/* Scroll Left Button */}
+            <button
+              type="button"
+              onClick={() => scrollTabs('left')}
+              className="p-2 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 text-white shrink-0 transition-all shadow-xs border border-white/20"
+              title="Scroll options left"
+              aria-label="Scroll options left"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {/* Horizontal Scrollable Tabs Container */}
+            <div
+              ref={tabsContainerRef}
+              className="flex-1 flex items-center gap-2 overflow-x-auto pb-3 pt-1 text-xs font-semibold scroll-smooth"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#ef4444 rgba(15, 23, 42, 0.5)',
+              }}
+            >
+              {[
+                { id: 'branding', label: 'Website Identity', icon: School },
+                { id: 'subjects', label: `Subjects (${subjects.length})`, icon: BookOpen },
+                { id: 'classes', label: `Classes (${classes.length})`, icon: GraduationCap },
+                { id: 'users', label: `Users & Roles (${users.length})`, icon: Users },
+                { id: 'chats', label: `Personal Chats (${conversations.length})`, icon: MessageSquare },
+                { id: 'announcements', label: `Notices (${announcements.length})`, icon: Bell },
+                { id: 'calendar', label: `Calendar Events (${events.length})`, icon: Calendar },
+                { id: 'materials', label: `Materials (${materials.length})`, icon: BookMarked },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as AdminTab)}
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 whitespace-nowrap transition-all shrink-0 ${
+                      isActive
+                        ? 'bg-white text-blue-950 shadow-md font-bold ring-2 ring-red-500'
+                        : 'bg-white/10 text-white/90 hover:bg-white/20 hover:text-white border border-white/10'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-red-600' : 'text-blue-200'}`} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Scroll Right Button */}
+            <button
+              type="button"
+              onClick={() => scrollTabs('right')}
+              className="p-2 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 text-white shrink-0 transition-all shadow-xs border border-white/20"
+              title="Scroll options right"
+              aria-label="Scroll options right"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Horizontal Scroll Helper & Status */}
+          <div className="flex items-center justify-between text-[11px] text-blue-200 mt-1 px-1">
+            <span className="flex items-center gap-1.5 opacity-90">
+              <span className="inline-block w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+              <span>Scroll horizontally or use arrow buttons to access all 8 administration modules</span>
+            </span>
+            <span className="font-mono text-[10px] bg-blue-900/80 border border-blue-400/30 px-2.5 py-0.5 rounded-full text-blue-100">
+              Active: {activeTab.toUpperCase()}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -2191,17 +2271,27 @@ export const AdminMasterControlPage: React.FC = () => {
                     View Resource Link →
                   </a>
                 </div>
-                <button
-                  onClick={async () => {
-                    if (window.confirm(`Delete material "${m.title}"?`)) {
-                      await deleteDoc(doc(db, 'learningMaterials', m.id));
-                      triggerNotice('Material removed.');
-                    }
-                  }}
-                  className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setEditingMaterial(m)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                    title="Edit Material"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (window.confirm(`Delete material "${m.title}"?`)) {
+                        await deleteDoc(doc(db, 'learningMaterials', m.id));
+                        triggerNotice('Material removed.');
+                      }
+                    }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Delete Material"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -2210,7 +2300,9 @@ export const AdminMasterControlPage: React.FC = () => {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/60 p-4 backdrop-blur-xs">
               <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-blue-200">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <h3 className="font-serif text-lg font-bold text-blue-950">Add Learning Material</h3>
+                  <h3 className="font-serif text-lg font-bold text-blue-950">
+                    {editingMaterial.id ? 'Edit Learning Material' : 'Add Learning Material'}
+                  </h3>
                   <button onClick={() => setEditingMaterial(null)} className="text-slate-400 hover:text-slate-700">
                     <X className="w-5 h-5" />
                   </button>
@@ -2318,23 +2410,23 @@ export const AdminMasterControlPage: React.FC = () => {
                   <button
                     onClick={async () => {
                       if (!editingMaterial.title) return;
-                      const id = `mat-${Date.now()}`;
+                      const id = editingMaterial.id || `mat-${Date.now()}`;
                       const payload: LearningMaterial = {
                         id,
                         title: editingMaterial.title,
                         description: editingMaterial.description || '',
-                        classId: 'class-2k28-science-em',
+                        classId: editingMaterial.classId || 'class-2k28-science-em',
                         subjectId: editingMaterial.subjectId || 'sub-cmath',
-                        teacherId: 'admin_jaasim',
-                        teacherName: 'M. N. M. Jaasim',
-                        fileType: 'pdf',
+                        teacherId: editingMaterial.teacherId || 'admin_jaasim',
+                        teacherName: editingMaterial.teacherName || 'M. N. M. Jaasim',
+                        fileType: (editingMaterial.fileType as 'pdf' | 'document' | 'presentation' | 'image' | 'link') || 'pdf',
                         fileUrl: editingMaterial.fileUrl || '',
                         fileSize: editingMaterial.fileSize || '3.2 MB',
-                        createdAt: new Date().toISOString(),
+                        createdAt: editingMaterial.createdAt || new Date().toISOString(),
                       };
-                      await setDoc(doc(db, 'learningMaterials', id), payload, { merge: true });
+                      await setDoc(doc(db, 'learningMaterials', id), sanitizeFirestoreDoc(payload), { merge: true });
                       setEditingMaterial(null);
-                      triggerNotice(`Material "${payload.title}" added!`);
+                      triggerNotice(`Material "${payload.title}" saved successfully!`);
                     }}
                     className="px-5 py-2 rounded-xl bg-blue-900 text-white font-bold text-xs hover:bg-blue-950"
                   >

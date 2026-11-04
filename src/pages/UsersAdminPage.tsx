@@ -10,19 +10,25 @@ import {
   X,
   UserCheck,
   Link2,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, UserRole } from '../types';
-import { REAL_ADMIN_PROFILE } from '../services/dataService';
+import { REAL_ADMIN_PROFILE, SEED_INITIAL_USERS } from '../services/dataService';
 
 export const UsersAdminPage: React.FC = () => {
   const { activeRole } = useAuth();
-  const [users, setUsers] = useState<UserProfile[]>([REAL_ADMIN_PROFILE]);
+  const [users, setUsers] = useState<UserProfile[]>([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState<UserRole>('student');
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   // Add User Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -35,17 +41,24 @@ export const UsersAdminPage: React.FC = () => {
       collection(db, 'userProfiles'),
       (snap) => {
         const list: UserProfile[] = [];
-        snap.forEach((d) => list.push(d.data() as UserProfile));
+        snap.forEach((d) => {
+          const u = d.data() as UserProfile;
+          list.push({ ...u, userId: u.userId || d.id });
+        });
         if (list.length > 0) {
+          // If admin profile isn't already present in list, ensure admin is included
+          if (!list.some((u) => u.email?.toLowerCase() === 'mnmjaasim@gmail.com')) {
+            list.unshift(REAL_ADMIN_PROFILE);
+          }
           setUsers(list);
         } else {
-          setUsers([REAL_ADMIN_PROFILE]);
+          setUsers([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
         }
         setLoading(false);
       },
       (error) => {
         console.warn('Real-time users error:', error);
-        setUsers([REAL_ADMIN_PROFILE]);
+        setUsers([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
         setLoading(false);
       }
     );
@@ -143,12 +156,97 @@ export const UsersAdminPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Feedback Banner */}
+      {feedback && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900 flex items-center justify-between">
+          <span>{feedback}</span>
+          <button onClick={() => setFeedback(null)} className="text-emerald-700 underline text-[11px]">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Action Controls */}
+      {selectedUserIds.length > 0 && (
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-stone-950 font-bold text-xs">
+              {selectedUserIds.length}
+            </span>
+            <span className="text-xs font-bold text-stone-900">
+              {selectedUserIds.length} account{selectedUserIds.length > 1 ? 's' : ''} selected
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">Set Role To:</span>
+            <select
+              value={bulkRole}
+              onChange={(e) => setBulkRole(e.target.value as UserRole)}
+              className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs font-semibold text-stone-700 focus:outline-none"
+            >
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+              <option value="parent">Parent</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button
+              onClick={async () => {
+                setBulkUpdating(true);
+                try {
+                  await Promise.all(
+                    selectedUserIds.map((uid) =>
+                      setDoc(doc(db, 'userProfiles', uid), { role: bulkRole }, { merge: true })
+                    )
+                  );
+                  setFeedback(`Updated ${selectedUserIds.length} accounts to ${bulkRole.toUpperCase()}`);
+                  setSelectedUserIds([]);
+                } catch {
+                  setFeedback('Failed to update some roles.');
+                } finally {
+                  setBulkUpdating(false);
+                  setTimeout(() => setFeedback(null), 4000);
+                }
+              }}
+              disabled={bulkUpdating}
+              className="rounded-lg bg-stone-900 hover:bg-stone-800 disabled:opacity-50 px-3 py-1 text-xs font-bold text-white transition-colors"
+            >
+              {bulkUpdating ? 'Applying...' : 'Apply to Selected'}
+            </button>
+            <button
+              onClick={() => setSelectedUserIds([])}
+              className="text-xs text-stone-500 hover:text-stone-800 underline ml-1"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Users Table */}
       <div className="rounded-2xl border border-stone-200 bg-white shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50 text-stone-600 font-semibold uppercase tracking-wider text-[11px]">
+                <th className="py-3 px-3 w-10 text-center">
+                  <button
+                    onClick={() => {
+                      if (selectedUserIds.length === filtered.length && filtered.length > 0) {
+                        setSelectedUserIds([]);
+                      } else {
+                        setSelectedUserIds(filtered.map((u) => u.userId));
+                      }
+                    }}
+                    className="p-1 hover:bg-stone-200 rounded text-stone-700 transition-colors"
+                  >
+                    {selectedUserIds.length === filtered.length && filtered.length > 0 ? (
+                      <CheckSquare className="w-4 h-4 text-amber-600" />
+                    ) : (
+                      <Square className="w-4 h-4 text-stone-400" />
+                    )}
+                  </button>
+                </th>
                 <th className="py-3 px-4">User</th>
                 <th className="py-3 px-4">Current Role</th>
                 <th className="py-3 px-4">Email</th>
@@ -157,21 +255,41 @@ export const UsersAdminPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100 text-stone-800">
-              {filtered.map((user) => (
-                <tr key={user.userId} className="hover:bg-stone-50/50 transition-colors">
-                  <td className="py-3.5 px-4">
-                    <div className="flex items-center gap-2.5">
-                      <div className="h-8 w-8 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
-                        {user.fullName ? user.fullName.charAt(0) : 'U'}
+              {filtered.map((user) => {
+                const isSelected = selectedUserIds.includes(user.userId);
+                return (
+                  <tr key={user.userId} className={`transition-colors ${isSelected ? 'bg-amber-50/60' : 'hover:bg-stone-50/50'}`}>
+                    <td className="py-3.5 px-3 text-center">
+                      <button
+                        onClick={() => {
+                          setSelectedUserIds((prev) =>
+                            prev.includes(user.userId)
+                              ? prev.filter((id) => id !== user.userId)
+                              : [...prev, user.userId]
+                          );
+                        }}
+                        className="p-1 hover:bg-stone-200 rounded text-stone-700 transition-colors"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="w-4 h-4 text-amber-600" />
+                        ) : (
+                          <Square className="w-4 h-4 text-stone-300" />
+                        )}
+                      </button>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
+                          {user.fullName ? user.fullName.charAt(0) : 'U'}
+                        </div>
+                        <div>
+                          <p className="font-bold text-stone-900">{user.fullName}</p>
+                          <p className="text-[10px] text-stone-500">
+                            {user.subject ? `Subject: ${user.subject}` : user.stream ? `Stream: ${user.stream}` : (user.bio || 'Zahira Academic Member')}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-bold text-stone-900">{user.fullName}</p>
-                        <p className="text-[10px] text-stone-500">
-                          {user.subject ? `Subject: ${user.subject}` : user.stream ? `Stream: ${user.stream}` : (user.bio || 'Zahira Academic Member')}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
+                    </td>
                   <td className="py-3.5 px-4">
                     <span
                       className={`rounded px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
@@ -210,8 +328,9 @@ export const UsersAdminPage: React.FC = () => {
                     </select>
                   </td>
                 </tr>
-              ))}
-            </tbody>
+              );
+            })}
+          </tbody>
           </table>
         </div>
       </div>

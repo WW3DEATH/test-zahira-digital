@@ -27,6 +27,9 @@ import {
   QrCode,
   Camera,
   Dna,
+  Flame,
+  Zap,
+  Target,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -36,6 +39,7 @@ import {
   Area,
   BarChart,
   Bar,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -90,6 +94,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   );
   const [showQRScanModal, setShowQRScanModal] = useState(false);
   const [showStudyPlanner, setShowStudyPlanner] = useState(false);
+  const [completionCadence, setCompletionCadence] = useState<'daily' | 'weekly'>('daily');
 
   // Real-time synchronization
   useEffect(() => {
@@ -238,6 +243,30 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     { subject: 'Physics', score: 91, target: 85, color: '#0284c7' },
     { subject: 'Chemistry', score: 95, target: 85, color: '#dc2626' },
     { subject: 'Biology / ICT', score: 92, target: 85, color: '#059669' },
+  ];
+
+  // Daily Assignment Completion Metrics (Last 7 Days + Today)
+  const dailyMetrics = [
+    { day: 'Wed Oct 28', shortDay: 'Wed 28', assigned: 2, completed: 2, earlyBonus: 1, onTimeRate: 100, xpEarned: 80 },
+    { day: 'Thu Oct 29', shortDay: 'Thu 29', assigned: 3, completed: 3, earlyBonus: 2, onTimeRate: 100, xpEarned: 110 },
+    { day: 'Fri Oct 30', shortDay: 'Fri 30', assigned: 2, completed: 2, earlyBonus: 1, onTimeRate: 100, xpEarned: 85 },
+    { day: 'Sat Oct 31', shortDay: 'Sat 31', assigned: 1, completed: 1, earlyBonus: 1, onTimeRate: 100, xpEarned: 60 },
+    { day: 'Sun Nov 01', shortDay: 'Sun 01', assigned: 2, completed: 2, earlyBonus: 1, onTimeRate: 100, xpEarned: 90 },
+    { day: 'Mon Nov 02', shortDay: 'Mon 02', assigned: 3, completed: 3, earlyBonus: 2, onTimeRate: 100, xpEarned: 125 },
+    { day: 'Tue Nov 03', shortDay: 'Tue 03', assigned: 2, completed: 2, earlyBonus: 2, onTimeRate: 100, xpEarned: 100 },
+    { day: 'Wed Nov 04 (Today)', shortDay: 'Today', assigned: 2, completed: Math.min(2, Math.max(1, myCompletedSubmissions.length > 0 ? 2 : 1)), earlyBonus: 1, onTimeRate: 100, xpEarned: 90 },
+  ];
+
+  // Weekly Assignment Milestone Metrics (Academic Weeks 1 - 8)
+  const weeklyMetrics = [
+    { week: 'W1 Induction', shortWeek: 'W1', assigned: 4, completed: 4, milestoneRate: 100, velocityXP: 220, target: 4 },
+    { week: 'W2 Kinematics', shortWeek: 'W2', assigned: 5, completed: 5, milestoneRate: 100, velocityXP: 265, target: 5 },
+    { week: 'W3 Vectors & Force', shortWeek: 'W3', assigned: 4, completed: 4, milestoneRate: 100, velocityXP: 230, target: 4 },
+    { week: 'W4 Calculus Functions', shortWeek: 'W4', assigned: 5, completed: 5, milestoneRate: 98, velocityXP: 280, target: 5 },
+    { week: 'W5 Newton Laws', shortWeek: 'W5', assigned: 4, completed: 4, milestoneRate: 100, velocityXP: 245, target: 4 },
+    { week: 'W6 Optics & Waves', shortWeek: 'W6', assigned: 5, completed: 4, milestoneRate: 90, velocityXP: 215, target: 5 },
+    { week: 'W7 Chemical Moles', shortWeek: 'W7', assigned: 4, completed: 4, milestoneRate: 100, velocityXP: 250, target: 4 },
+    { week: 'W8 Mid-Term Sprint', shortWeek: 'W8', assigned: 5, completed: 5, milestoneRate: 100, velocityXP: 290, target: 5 },
   ];
 
   // Theme-aware colors for Recharts
@@ -438,6 +467,208 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
           <p className="font-serif text-3xl font-bold text-slate-900 dark:text-slate-100 mt-2">Top 5%</p>
           <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium mt-2">A/L Science Island Trajectory</p>
+        </div>
+      </div>
+
+      {/* MOTIVATIONAL ASSIGNMENT PROGRESS TRACKER (RECHARTS) */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 md:p-8 shadow-sm transition-colors">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                <Target className="w-4 h-4" />
+              </span>
+              <h3 className="font-serif text-xl font-bold text-slate-900 dark:text-slate-100">
+                Assignment Completion & Diligence Tracker
+              </h3>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold px-2.5 py-0.5 border border-emerald-300 dark:border-emerald-800">
+                <Flame className="w-3 h-3 text-emerald-600 animate-pulse" />
+                <span>6-Day Streak</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
+              Daily problem set cadence and weekly academic milestones for Zahira College 2k28 Science EM scholars.
+            </p>
+          </div>
+
+          {/* Daily vs Weekly Toggle */}
+          <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-800 text-xs shrink-0 self-start md:self-auto">
+            <button
+              onClick={() => setCompletionCadence('daily')}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
+                completionCadence === 'daily'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Daily Cadence (Last 8 Days)</span>
+            </button>
+            <button
+              onClick={() => setCompletionCadence('weekly')}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
+                completionCadence === 'weekly'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Weekly Milestones (Weeks 1-8)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Motivational High-Impact Badges Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-6">
+          <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/20 p-3.5">
+            <div className="flex items-center justify-between text-amber-700 dark:text-amber-400">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Active Diligence</span>
+              <Flame className="w-4 h-4 text-amber-500" />
+            </div>
+            <p className="font-serif text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">6 Days</p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium mt-0.5">+180 Diligence XP Boost</p>
+          </div>
+
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20 p-3.5">
+            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400">
+              <span className="text-[10px] font-bold uppercase tracking-wider">On-Time Velocity</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            </div>
+            <p className="font-serif text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">98.2%</p>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-0.5">Top Tier Batch Promptness</p>
+          </div>
+
+          <div className="rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20 p-3.5">
+            <div className="flex items-center justify-between text-blue-700 dark:text-blue-400">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Early Submissions</span>
+              <Zap className="w-4 h-4 text-blue-500" />
+            </div>
+            <p className="font-serif text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">84%</p>
+            <p className="text-[11px] text-blue-700 dark:text-blue-400 font-medium mt-0.5">Turned in &gt;12h Ahead of Due</p>
+          </div>
+
+          <div className="rounded-xl border border-purple-200 dark:border-purple-900/40 bg-purple-50/50 dark:bg-purple-950/20 p-3.5">
+            <div className="flex items-center justify-between text-purple-700 dark:text-purple-400">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Semester Coursework</span>
+              <Award className="w-4 h-4 text-purple-500" />
+            </div>
+            <p className="font-serif text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">36 / 37</p>
+            <p className="text-[11px] text-purple-700 dark:text-purple-400 font-medium mt-0.5">Honors Milestone Level 7</p>
+          </div>
+        </div>
+
+        {/* Visual Recharts Progress Chart */}
+        <div className="h-72 w-full pt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            {completionCadence === 'daily' ? (
+              <ComposedChart data={dailyMetrics} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="completedDailyGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="#059669" stopOpacity={0.7} />
+                  </linearGradient>
+                  <linearGradient id="earlyDailyGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.7} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                <XAxis dataKey="shortDay" tick={{ fill: textFill, fontSize: 11 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
+                <YAxis yAxisId="left" domain={[0, 4]} allowDecimals={false} tick={{ fill: textFill, fontSize: 11 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
+                <YAxis yAxisId="right" orientation="right" domain={[0, 150]} tick={{ fill: textFill, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v} XP`} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: tooltipBg,
+                    borderColor: tooltipBorder,
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                  }}
+                  formatter={(val: any, name?: any) => {
+                    if (name === 'completed') return [`${val} Tasks`, 'Completed Solutions'];
+                    if (name === 'assigned') return [`${val} Tasks`, 'Daily Assignment Target'];
+                    if (name === 'earlyBonus') return [`${val} Tasks`, 'Early-Bird Submissions'];
+                    if (name === 'xpEarned') return [`${val} XP`, 'Diligence XP Earned'];
+                    return [val, name];
+                  }}
+                  labelFormatter={(label, payload) => payload?.[0]?.payload?.day || label}
+                />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  height={32}
+                  formatter={(val) => (
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      {val === 'assigned' ? 'Assigned Target' : val === 'completed' ? 'Completed Tasks' : val === 'earlyBonus' ? 'Early Submissions' : 'Diligence XP'}
+                    </span>
+                  )}
+                />
+                <Bar yAxisId="left" dataKey="assigned" fill={isDark ? '#334155' : '#e2e8f0'} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar yAxisId="left" dataKey="completed" fill="url(#completedDailyGrad)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar yAxisId="left" dataKey="earlyBonus" fill="url(#earlyDailyGrad)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Line yAxisId="right" type="monotone" dataKey="xpEarned" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4, fill: '#f59e0b' }} />
+              </ComposedChart>
+            ) : (
+              <ComposedChart data={weeklyMetrics} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="weeklyCompletedGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="#1e40af" stopOpacity={0.7} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                <XAxis dataKey="shortWeek" tick={{ fill: textFill, fontSize: 11 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
+                <YAxis yAxisId="left" domain={[0, 6]} allowDecimals={false} tick={{ fill: textFill, fontSize: 11 }} axisLine={{ stroke: gridStroke }} tickLine={false} />
+                <YAxis yAxisId="right" orientation="right" domain={[150, 320]} tick={{ fill: textFill, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v} XP`} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: tooltipBg,
+                    borderColor: tooltipBorder,
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                  }}
+                  formatter={(val: any, name?: any) => {
+                    if (name === 'completed') return [`${val} Coursework Tasks`, 'Completed Solutions'];
+                    if (name === 'assigned') return [`${val} Coursework Tasks`, 'Assigned Curriculum'];
+                    if (name === 'velocityXP') return [`${val} Velocity XP`, 'Weekly Mastery Points'];
+                    return [val, name];
+                  }}
+                  labelFormatter={(label, payload) => payload?.[0]?.payload?.week || label}
+                />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  height={32}
+                  formatter={(val) => (
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      {val === 'assigned' ? 'Curriculum Assigned' : val === 'completed' ? 'Completed & Submitted' : 'Mastery Velocity XP'}
+                    </span>
+                  )}
+                />
+                <Bar yAxisId="left" dataKey="assigned" fill={isDark ? '#334155' : '#e2e8f0'} radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <Bar yAxisId="left" dataKey="completed" fill="url(#weeklyCompletedGrad)" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <Line yAxisId="right" type="monotone" dataKey="velocityXP" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, fill: '#8b5cf6' }} />
+              </ComposedChart>
+            )}
+          </ResponsiveContainer>
+        </div>
+
+        {/* Motivational Footer Note */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 mt-4 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+            <Award className="w-4 h-4 text-amber-500 shrink-0" />
+            <span><strong>Academic Streak Incentive:</strong> Submitting 2 more assignments on or before Friday unlocks the <em>&quot;Master Scientist&quot;</em> Gold Seal badge!</span>
+          </div>
+          <button
+            onClick={() => onNavigate('assignments')}
+            className="inline-flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+          >
+            <span>Solve Today&apos;s Homework</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
