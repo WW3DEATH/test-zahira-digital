@@ -96,7 +96,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139);
       doc.text('OFFICIAL ACADEMIC PROGRESS REPORT • G.C.E. A/L BATCH 2028', 20, 28);
-      doc.text('Mawanella, Sri Lanka • Lead Admin: mnmjaasim@gmail.com', 20, 33);
+      doc.text('Mawanella, Sri Lanka • Zahira College Mawanella Science Project management', 20, 33);
 
       doc.setDrawColor(203, 213, 225);
       doc.line(20, 37, 190, 37);
@@ -159,15 +159,12 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
       y += 18;
       doc.setFont('helvetica', 'normal');
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
-      doc.text('Certified by Academic Administrator:', 20, y);
+      doc.text('Certified by Academic Administration:', 20, y);
       doc.setFont('helvetica', 'bold');
-      doc.text('M. N. M. Jaasim, Academic Lead - Zahira College 2k28 Science EM', 20, y + 7);
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`Digitally sealed and generated on ${new Date().toLocaleDateString()}`, 115, y + 7);
+      doc.text('Zahira College Mawanella Science Project management', 20, y + 7);
 
       doc.save(`Academic_Report_Card_${currentStudent.fullName.replace(/\s+/g, '_')}_2k28.pdf`);
     } catch (e) {

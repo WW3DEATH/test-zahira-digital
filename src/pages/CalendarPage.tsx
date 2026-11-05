@@ -21,11 +21,17 @@ import {
   BookOpen,
   Filter,
   ShieldCheck,
+  Download,
+  FileText,
+  GraduationCap,
+  Layers,
+  CheckSquare,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { jsPDF } from 'jspdf';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { SchoolEvent, SchoolEventType, AttendanceRecord, AttendanceStatus, UserProfile, SchoolClass } from '../types';
+import { SchoolEvent, SchoolEventType, AttendanceRecord, AttendanceStatus, UserProfile, SchoolClass, ScheduledClass } from '../types';
 import {
   syncGoogleCalendarToFirestore,
   createGoogleCalendarEvent,
@@ -74,6 +80,19 @@ export const CalendarPage: React.FC = () => {
   const [register, setRegister] = useState<Record<string, AttendanceStatus>>({});
   const [attendanceSaved, setAttendanceSaved] = useState(false);
 
+  // Scheduled Classes State
+  const [scheduledClasses, setScheduledClasses] = useState<ScheduledClass[]>([]);
+  const [selectedScheduledClassId, setSelectedScheduledClassId] = useState<string | null>(null);
+  const [isScheduleClassModalOpen, setIsScheduleClassModalOpen] = useState(false);
+  const [newClassDate, setNewClassDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [newClassSubject, setNewClassSubject] = useState('Combined Mathematics');
+  const [newClassTimeSlot, setNewClassTimeSlot] = useState('08:00 - 09:30');
+  const [newClassPeriod, setNewClassPeriod] = useState('Period 1');
+  const [newClassTopic, setNewClassTopic] = useState('');
+  const [newClassRoom, setNewClassRoom] = useState('Science Complex Hall 28');
+  const [savingScheduledClass, setSavingScheduledClass] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
+
   const isTeacherOrAdmin = activeRole === 'admin' || activeRole === 'teacher';
 
   // 1. Real-time listener for school events
@@ -88,7 +107,18 @@ export const CalendarPage: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // 2. Real-time listener for attendance
+  // 2. Real-time listener for scheduled classes
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'scheduledClasses'), (snapshot) => {
+      const list: ScheduledClass[] = [];
+      snapshot.forEach((d) => list.push(d.data() as ScheduledClass));
+      list.sort((a, b) => a.timeSlot.localeCompare(b.timeSlot));
+      setScheduledClasses(list);
+    });
+    return () => unsub();
+  }, []);
+
+  // 3. Real-time listener for attendance
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'attendance'), (snapshot) => {
       const list: AttendanceRecord[] = [];
@@ -276,37 +306,369 @@ export const CalendarPage: React.FC = () => {
     }
   };
 
-  // Attendance Handlers
-  const handleAttendanceStatusChange = (studentId: string, status: AttendanceStatus) => {
-    setRegister((prev) => ({ ...prev, [studentId]: status }));
+  // Get all scheduled classes for a specific date (real Firestore records or default timetable)
+  const getClassesForDate = (dateStr: string): ScheduledClass[] => {
+    const directMatches = scheduledClasses.filter((sc) => sc.date === dateStr);
+    if (directMatches.length > 0) return directMatches;
+
+    // Standard A/L Science EM default weekday schedule
+    const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      return [
+        {
+          id: `default-${dateStr}-maths`,
+          classId: selectedClassId || 'class-2k28-science-em',
+          className: '2k28 Science EM',
+          date: dateStr,
+          timeSlot: '08:00 - 09:30',
+          periodName: 'Period 1',
+          subject: 'Combined Mathematics (Pure & Applied Mechanics)',
+          topic: 'Calculus Theorems & Vector Kinematics',
+          teacherId: userProfile?.userId || 'faculty',
+          teacherName: userProfile?.fullName || 'Zahira Faculty',
+          room: 'Science Complex - Hall 28',
+          createdAt: dateStr,
+        },
+        {
+          id: `default-${dateStr}-physics`,
+          classId: selectedClassId || 'class-2k28-science-em',
+          className: '2k28 Science EM',
+          date: dateStr,
+          timeSlot: '09:45 - 11:15',
+          periodName: 'Period 2',
+          subject: 'Physics (Mechanics, Optics & Electronics)',
+          topic: 'Rotational Dynamics & Wave Interference',
+          teacherId: userProfile?.userId || 'faculty',
+          teacherName: userProfile?.fullName || 'Zahira Faculty',
+          room: 'Science Complex - Physics Lab 1',
+          createdAt: dateStr,
+        },
+        {
+          id: `default-${dateStr}-chemistry`,
+          classId: selectedClassId || 'class-2k28-science-em',
+          className: '2k28 Science EM',
+          date: dateStr,
+          timeSlot: '11:30 - 13:00',
+          periodName: 'Period 3',
+          subject: 'Chemistry (Inorganic & Physical Chemistry)',
+          topic: 'Equilibrium Constant & Electrochemistry',
+          teacherId: userProfile?.userId || 'faculty',
+          teacherName: userProfile?.fullName || 'Zahira Faculty',
+          room: 'Science Complex - Chem Lab 2',
+          createdAt: dateStr,
+        },
+      ];
+    }
+    return [];
   };
 
-  const handleMarkAllPresent = () => {
-    const updated: Record<string, AttendanceStatus> = {};
-    students.forEach((s) => {
-      updated[s.userId] = 'present';
-    });
-    setRegister(updated);
-  };
+  // Add a class session to a specific date
+  const handleCreateScheduledClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClassDate || !newClassSubject.trim()) return;
 
-  const handleSaveAttendance = async () => {
+    setSavingScheduledClass(true);
     try {
-      const recordId = `att-${attendanceDate}-${selectedClassId}`;
+      const classSessionId = `class-session-${Date.now()}`;
+      const defaultRegister: Record<string, AttendanceStatus> = {};
+      students.forEach((s) => {
+        defaultRegister[s.userId] = 'present';
+      });
+
+      const newSession: ScheduledClass = {
+        id: classSessionId,
+        classId: selectedClassId,
+        className: '2k28 Science EM',
+        date: newClassDate,
+        timeSlot: newClassTimeSlot,
+        periodName: newClassPeriod,
+        subject: newClassSubject.trim(),
+        topic: newClassTopic.trim() || undefined,
+        teacherId: userProfile?.userId || 'faculty',
+        teacherName: userProfile?.fullName || 'Zahira Faculty',
+        room: newClassRoom.trim() || 'Science Complex Hall 28',
+        attendanceRecords: defaultRegister,
+        attendanceTaken: false,
+        createdAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, 'scheduledClasses', classSessionId), newSession);
+
+      // Also add corresponding calendar event so it appears in monthly view
+      const eventId = `ev-class-${classSessionId}`;
+      const newEv: SchoolEvent = {
+        id: eventId,
+        title: `${newClassSubject} (${newClassTimeSlot})`,
+        description: `Class session: ${newClassTopic || 'Academic Lecture'} | Room: ${newClassRoom}`,
+        startDate: newClassDate,
+        time: newClassTimeSlot.split('-')[0].trim(),
+        type: 'academic',
+        classId: selectedClassId,
+        location: newClassRoom,
+        createdBy: userProfile?.userId || 'faculty',
+        createdByName: userProfile?.fullName || 'Zahira Faculty',
+        createdAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'schoolEvents', eventId), newEv);
+
+      setIsScheduleClassModalOpen(false);
+      setNewClassTopic('');
+      setSelectedScheduledClassId(classSessionId);
+      setSyncMessage(`Scheduled "${newClassSubject}" on ${newClassDate}.`);
+      setTimeout(() => setSyncMessage(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to schedule class:', err);
+      alert('Error scheduling class: ' + err.message);
+    } finally {
+      setSavingScheduledClass(false);
+    }
+  };
+
+  // Save attendance for the selected class session
+  const handleSaveClassAttendance = async (targetClass?: ScheduledClass) => {
+    const activeClass = targetClass || (selectedScheduledClassId ? scheduledClasses.find((c) => c.id === selectedScheduledClassId) : null);
+    const activeSubject = activeClass ? activeClass.subject : 'General Roll-Call';
+    const activeClassId = activeClass?.classId || selectedClassId;
+    const activeDate = attendanceDate;
+
+    try {
+      // 1. Save to attendance collection
+      const recordId = `att-${activeDate}-${activeClassId}-${activeSubject.replace(/[^a-zA-Z0-9]/g, '_')}`;
       const record: AttendanceRecord = {
         id: recordId,
-        classId: selectedClassId,
-        date: attendanceDate,
+        classId: activeClassId,
+        date: activeDate,
         teacherId: userProfile?.userId || 'faculty_lead',
         records: register,
         createdAt: new Date().toISOString(),
       };
-
       await setDoc(doc(db, 'attendance', recordId), record);
+
+      // 2. If it's a scheduledClass doc in Firestore, update it
+      if (activeClass && !activeClass.id.startsWith('default-')) {
+        await setDoc(
+          doc(db, 'scheduledClasses', activeClass.id),
+          { attendanceRecords: register, attendanceTaken: true },
+          { merge: true }
+        );
+      } else if (activeClass && activeClass.id.startsWith('default-')) {
+        // Persist default template into a real Firestore doc
+        const newId = `sc-${activeDate}-${activeClass.periodName?.replace(/\s+/g, '_') || 'period'}`;
+        await setDoc(doc(db, 'scheduledClasses', newId), {
+          ...activeClass,
+          id: newId,
+          attendanceRecords: register,
+          attendanceTaken: true,
+        });
+      }
+
       setAttendanceSaved(true);
       setTimeout(() => setAttendanceSaved(false), 3000);
     } catch (err: any) {
       console.error('Failed to save attendance:', err);
       alert('Error saving attendance: ' + err.message);
+    }
+  };
+
+  // Export comprehensive Single-Day Multi-Class Attendance PDF
+  const handleExportDailyComprehensivePDF = (dateStr: string) => {
+    setExportingPDF(true);
+    try {
+      const doc = new jsPDF();
+      const dayDate = new Date(`${dateStr}T00:00:00`);
+      const formattedDay = dayDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      // 1. Collect all classes that happened on this SINGLE DAY only
+      const dayClasses = getClassesForDate(dateStr);
+      const classesToRender = dayClasses.length > 0 ? dayClasses : [
+        {
+          id: `day-${dateStr}-general`,
+          classId: selectedClassId,
+          className: '2k28 Science EM',
+          date: dateStr,
+          timeSlot: '08:00 - 13:30',
+          periodName: 'Academic Schedule',
+          subject: 'Standard Science Cohort Sessions',
+          topic: 'Daily Lecture & Laboratory Practical Block',
+          teacherId: userProfile?.userId || 'faculty',
+          teacherName: userProfile?.fullName || 'Zahira Faculty',
+          room: 'Science Complex Hall 28',
+          createdAt: dateStr,
+        },
+      ];
+
+      // Page 1: Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42);
+      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text('OFFICIAL DAILY ACADEMIC REGISTER & ALL-CLASSES ATTENDANCE REPORT', 20, 26);
+      doc.text('Certified Single-Day Roll-Call Summary • Internal Faculty & Administration Record', 20, 31);
+
+      doc.setDrawColor(203, 213, 225);
+      doc.line(20, 35, 190, 35);
+
+      // Single Day Audit Banner
+      doc.setFillColor(239, 246, 255);
+      doc.roundedRect(20, 39, 170, 18, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 64, 175);
+      doc.text(`DAILY AUDIT DATE: ${formattedDay.toUpperCase()} (${dateStr})`, 24, 46);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Cohort: 2k28 Science EM • Total Classes Conducted Today: ${classesToRender.length}`, 24, 52);
+      doc.text(`Supervisor: ${userProfile?.fullName || 'Faculty Lead'} (${userProfile?.role || 'Teacher'})`, 115, 52);
+
+      let y = 65;
+
+      // Iterate through EVERY CLASS that happened on this SINGLE DAY
+      classesToRender.forEach((cls, classIdx) => {
+        if (y > 215) {
+          doc.addPage();
+          y = 25;
+        }
+
+        // Class Session Title Banner
+        doc.setFillColor(241, 245, 249);
+        doc.roundedRect(20, y, 170, 11, 1.5, 1.5, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Class ${classIdx + 1}: ${cls.subject} (${cls.timeSlot})`, 24, y + 7.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Room: ${cls.room} • Faculty: ${cls.teacherName}`, 120, y + 7.5);
+
+        y += 15;
+
+        // Table Header
+        doc.setFillColor(248, 250, 252);
+        doc.rect(20, y, 170, 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(71, 85, 105);
+        doc.text('ROLL / INDEX', 24, y + 4.8);
+        doc.text('SCHOLAR NAME', 60, y + 4.8);
+        doc.text('STATUS', 135, y + 4.8);
+        doc.text('VERIFICATION', 165, y + 4.8);
+
+        y += 10;
+
+        const classRecords = cls.attendanceRecords || register;
+        let pCount = 0;
+        let lCount = 0;
+        let aCount = 0;
+
+        students.forEach((st, sIdx) => {
+          if (y > 275) {
+            doc.addPage();
+            y = 25;
+          }
+
+          const status: AttendanceStatus = classRecords[st.userId] || 'present';
+          if (status === 'present') pCount++;
+          else if (status === 'late') lCount++;
+          else if (status === 'absent') aCount++;
+
+          const indexNo = st.bio?.includes('Index:')
+            ? st.bio.split('Index:')[1].split('•')[0].trim()
+            : `2K28-SCI-${String(sIdx + 1).padStart(3, '0')}`;
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(indexNo, 24, y);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(st.fullName || 'Scholar', 60, y);
+
+          if (status === 'present') {
+            doc.setTextColor(22, 101, 52);
+            doc.text('PRESENT', 135, y);
+          } else if (status === 'late') {
+            doc.setTextColor(180, 83, 9);
+            doc.text('LATE', 135, y);
+          } else if (status === 'absent') {
+            doc.setTextColor(185, 28, 28);
+            doc.text('ABSENT', 135, y);
+          } else {
+            doc.setTextColor(71, 85, 105);
+            doc.text('EXCUSED', 135, y);
+          }
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(148, 163, 184);
+          doc.text('Verified', 165, y);
+
+          y += 7;
+        });
+
+        // Class Summary Line
+        const classTotal = students.length || 1;
+        const classRate = Math.round(((pCount + lCount * 0.5) / classTotal) * 100);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.setTextColor(71, 85, 105);
+        doc.text(
+          `Class Summary: ${pCount} Present, ${lCount} Late, ${aCount} Absent • Attendance Rate: ${classRate}%`,
+          24,
+          y + 2
+        );
+        y += 11;
+      });
+
+      // End of Single-Day Document Certification Block
+      if (y > 240) {
+        doc.addPage();
+        y = 30;
+      }
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(20, y + 4, 190, y + 4);
+      y += 12;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Certified by Academic Administration:', 20, y);
+
+      y += 6;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 64, 175);
+      doc.text('Zahira College Mawanella Science Project management', 20, y);
+
+      y += 5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Official Single-Day All-Classes Academic Attendance Record • Generated on ${new Date().toLocaleString()}`,
+        20,
+        y
+      );
+
+      doc.save(`Zahira_College_Daily_Attendance_AllClasses_${dateStr}.pdf`);
+    } catch (e) {
+      console.error('Daily PDF export error:', e);
+    } finally {
+      setExportingPDF(false);
     }
   };
 
@@ -762,17 +1124,66 @@ export const CalendarPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Quick Jump to Attendance for this Date */}
-              <div className="mt-5 pt-4 border-t border-stone-100">
+              {/* Scheduled Classes for this Date */}
+              <div className="mt-4 pt-3 border-t border-stone-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-500">
+                    Day's Classes ({getClassesForDate(selectedDateStr).length})
+                  </span>
+                  {isTeacherOrAdmin && (
+                    <button
+                      onClick={() => {
+                        setNewClassDate(selectedDateStr);
+                        setIsScheduleClassModalOpen(true);
+                      }}
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add Class</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  {getClassesForDate(selectedDateStr).map((cls) => (
+                    <div
+                      key={cls.id}
+                      className="p-2 rounded-lg bg-stone-50 border border-stone-200/80 text-xs flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="font-bold text-stone-900 text-[11px]">{cls.subject}</p>
+                        <p className="text-[10px] text-stone-500 font-normal">
+                          {cls.timeSlot} • {cls.room}
+                        </p>
+                      </div>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-mono">
+                        {cls.periodName || 'Class'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quick Actions for this Date */}
+              <div className="mt-4 pt-3 border-t border-stone-100 space-y-2">
                 <button
                   onClick={() => {
                     setAttendanceDate(selectedDateStr);
                     setActiveTab('attendance');
                   }}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-stone-200 hover:bg-stone-50 py-2.5 px-3 text-xs font-bold text-stone-800 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 py-2 px-3 text-xs font-bold text-white transition-colors shadow-xs"
                 >
-                  <CalendarCheck2 className="w-4 h-4 text-amber-600" />
+                  <CalendarCheck2 className="w-4 h-4 text-white" />
                   <span>Mark Attendance for {selectedDateStr}</span>
+                </button>
+
+                <button
+                  onClick={() => handleExportDailyComprehensivePDF(selectedDateStr)}
+                  disabled={exportingPDF}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-stone-300 hover:bg-stone-50 py-2 px-3 text-xs font-bold text-stone-800 transition-colors shadow-xs"
+                >
+                  <Download className="w-4 h-4 text-amber-600" />
+                  <span>{exportingPDF ? 'Generating...' : `Export ${selectedDateStr} All-Classes PDF`}</span>
                 </button>
               </div>
             </div>
@@ -859,13 +1270,16 @@ export const CalendarPage: React.FC = () => {
                 <input
                   type="date"
                   value={attendanceDate}
-                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  onChange={(e) => {
+                    setAttendanceDate(e.target.value);
+                    setSelectedDateStr(e.target.value);
+                  }}
                   className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-stone-800 font-semibold focus:outline-none"
                 />
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {attendanceSaved && (
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -873,8 +1287,30 @@ export const CalendarPage: React.FC = () => {
                 </div>
               )}
 
+              {/* SINGLE DAY MULTI-CLASS PDF EXPORT BUTTON */}
+              <button
+                onClick={() => handleExportDailyComprehensivePDF(attendanceDate)}
+                disabled={exportingPDF}
+                className="flex items-center gap-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 px-3.5 py-1.5 text-xs font-bold text-white transition-colors shadow-xs"
+                title="Export certified single-day PDF with all classes and student attendance"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-400" />
+                <span>{exportingPDF ? 'Exporting...' : 'Export Single-Day Multi-Class PDF'}</span>
+              </button>
+
               {isTeacherOrAdmin && (
                 <>
+                  <button
+                    onClick={() => {
+                      setNewClassDate(attendanceDate);
+                      setIsScheduleClassModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-3.5 py-1.5 text-xs font-bold text-white transition-colors shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-white" />
+                    <span>Add Class Session</span>
+                  </button>
+
                   <button
                     onClick={handleMarkAllPresent}
                     className="rounded-lg border border-stone-200 hover:bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-700 transition-colors"
@@ -882,14 +1318,80 @@ export const CalendarPage: React.FC = () => {
                     Mark All Present
                   </button>
                   <button
-                    onClick={handleSaveAttendance}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-4 py-1.5 text-xs font-bold text-white hover:bg-stone-800 transition-colors shadow-xs"
+                    onClick={() => {
+                      const activeClass = selectedScheduledClassId
+                        ? scheduledClasses.find((c) => c.id === selectedScheduledClassId) ||
+                          getClassesForDate(attendanceDate).find((c) => c.id === selectedScheduledClassId)
+                        : getClassesForDate(attendanceDate)[0];
+                      handleSaveClassAttendance(activeClass);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 px-4 py-1.5 text-xs font-bold text-white transition-colors shadow-xs"
                   >
-                    <Save className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Save Register</span>
+                    <Save className="w-3.5 h-3.5 text-white" />
+                    <span>Save Class Attendance</span>
                   </button>
                 </>
               )}
+            </div>
+          </div>
+
+          {/* Daily Multi-Class Session Selector */}
+          <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4 shadow-xs space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-stone-500">
+                  Classes Occurring on {attendanceDate}
+                </span>
+                <p className="text-xs font-bold text-stone-900 mt-0.5">
+                  Click a class session below to mark its individual roll call:
+                </p>
+              </div>
+              <span className="text-[11px] font-semibold text-stone-500">
+                {getClassesForDate(attendanceDate).length} class session(s) scheduled
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2.5 pt-1">
+              {getClassesForDate(attendanceDate).map((cls, idx) => {
+                const isSelected =
+                  selectedScheduledClassId === cls.id || (!selectedScheduledClassId && idx === 0);
+                const classRecs = cls.attendanceRecords || (isSelected ? register : {});
+                const pCount = Object.values(classRecs).filter((s) => s === 'present').length;
+                const total = students.length || 1;
+                const rate = Math.round((pCount / total) * 100);
+
+                return (
+                  <button
+                    key={cls.id}
+                    onClick={() => {
+                      setSelectedScheduledClassId(cls.id);
+                      if (cls.attendanceRecords) {
+                        setRegister(cls.attendanceRecords);
+                      }
+                    }}
+                    className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                      isSelected
+                        ? 'bg-white border-blue-600 text-blue-900 shadow-xs ring-1 ring-blue-600'
+                        : 'bg-white/80 border-stone-200 text-stone-700 hover:bg-white hover:border-stone-300'
+                    }`}
+                  >
+                    <GraduationCap className={`w-4 h-4 ${isSelected ? 'text-blue-600' : 'text-stone-400'}`} />
+                    <div className="text-left">
+                      <p className="font-bold text-[11px] leading-tight">{cls.subject}</p>
+                      <p className="text-[10px] text-stone-500 font-normal">
+                        {cls.timeSlot} • {cls.room}
+                      </p>
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        rate >= 85 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {rate}% Present
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -1252,6 +1754,136 @@ export const CalendarPage: React.FC = () => {
                 Confirm Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: SCHEDULE CLASS ON DATE (Teachers & Admins) */}
+      {isScheduleClassModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-lg rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-700">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-stone-900">
+                    Schedule Class Session
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    Add a cohort class lecture or laboratory practical on this date
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsScheduleClassModalOpen(false)}
+                className="rounded-lg p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateScheduledClass} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Class Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={newClassDate}
+                    onChange={(e) => setNewClassDate(e.target.value)}
+                    className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Period / Time Slot *
+                  </label>
+                  <select
+                    value={newClassTimeSlot}
+                    onChange={(e) => {
+                      setNewClassTimeSlot(e.target.value);
+                      if (e.target.value.includes('08:00')) setNewClassPeriod('Period 1');
+                      else if (e.target.value.includes('09:45')) setNewClassPeriod('Period 2');
+                      else if (e.target.value.includes('11:30')) setNewClassPeriod('Period 3');
+                      else setNewClassPeriod('Period 4');
+                    }}
+                    className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="08:00 - 09:30">Period 1 (08:00 - 09:30)</option>
+                    <option value="09:45 - 11:15">Period 2 (09:45 - 11:15)</option>
+                    <option value="11:30 - 13:00">Period 3 (11:30 - 13:00)</option>
+                    <option value="13:45 - 15:15">Period 4 (13:45 - 15:15)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Subject *
+                </label>
+                <select
+                  value={newClassSubject}
+                  onChange={(e) => setNewClassSubject(e.target.value)}
+                  className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Combined Mathematics (Pure & Applied Mechanics)">Combined Mathematics (Pure & Applied Mechanics)</option>
+                  <option value="Physics (Mechanics, Optics & Electronics)">Physics (Mechanics, Optics & Electronics)</option>
+                  <option value="Chemistry (Inorganic & Physical Chemistry)">Chemistry (Inorganic & Physical Chemistry)</option>
+                  <option value="Biology (Plant & Animal Physiology, Genetics)">Biology (Plant & Animal Physiology, Genetics)</option>
+                  <option value="Information & Communication Technology (ICT)">Information & Communication Technology (ICT)</option>
+                  <option value="General Science Practical & Revision">General Science Practical & Revision</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Lesson Topic / Unit Outline (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Calculus Integration Theorems / Newton's 2nd Law Experiment"
+                  value={newClassTopic}
+                  onChange={(e) => setNewClassTopic(e.target.value)}
+                  className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Classroom / Laboratory Hall
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Science Complex Hall 28 / Physics Lab 1"
+                  value={newClassRoom}
+                  onChange={(e) => setNewClassRoom(e.target.value)}
+                  className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setIsScheduleClassModalOpen(false)}
+                  className="rounded-xl border border-stone-200 px-4 py-2 font-semibold text-stone-700 hover:bg-stone-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingScheduledClass}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2 transition-colors disabled:opacity-50 shadow-xs flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{savingScheduledClass ? 'Scheduling...' : 'Confirm & Schedule Class'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

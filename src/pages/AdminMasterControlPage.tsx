@@ -434,14 +434,13 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteConversation = async (convId: string) => {
-    if (window.confirm('Delete this conversation and audit logs? This action is permanent.')) {
-      try {
-        await deleteDoc(doc(db, 'conversations', convId));
-        setSelectedConvId(null);
-        triggerNotice('Conversation removed from audit database.');
-      } catch (err: any) {
-        alert('Error removing conversation: ' + err.message);
-      }
+    try {
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      if (selectedConvId === convId) setSelectedConvId(null);
+      await deleteDoc(doc(db, 'conversations', convId));
+      triggerNotice('Conversation permanently deleted from Firebase.');
+    } catch (err: any) {
+      triggerNotice('Error removing conversation: ' + err.message);
     }
   };
 
@@ -457,7 +456,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       await updateSiteConfig(brandingForm);
       triggerNotice('Institutional website details updated live!');
     } catch (err: any) {
-      alert('Error updating branding: ' + err.message);
+      triggerNotice('Error updating branding: ' + err.message);
     }
   };
 
@@ -481,9 +480,12 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteSubject = async (id: string, name: string) => {
-    if (window.confirm(`Delete subject "${name}"?`)) {
+    try {
+      setSubjects((prev) => prev.filter((s) => s.id !== id));
       await deleteDoc(doc(db, 'subjects', id));
-      triggerNotice(`Subject "${name}" deleted.`);
+      triggerNotice(`Subject "${name}" deleted from Firebase.`);
+    } catch (err: any) {
+      triggerNotice(`Failed to delete subject: ${err.message}`);
     }
   };
 
@@ -509,9 +511,12 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteClass = async (id: string, name: string) => {
-    if (window.confirm(`Delete class "${name}"?`)) {
+    try {
+      setClasses((prev) => prev.filter((c) => c.id !== id));
       await deleteDoc(doc(db, 'classes', id));
-      triggerNotice(`Class "${name}" deleted.`);
+      triggerNotice(`Class "${name}" deleted from Firebase.`);
+    } catch (err: any) {
+      triggerNotice(`Failed to delete class: ${err.message}`);
     }
   };
 
@@ -529,9 +534,16 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteUser = async (userId: string, name: string) => {
-    if (window.confirm(`Delete user "${name}" from directory?`)) {
+    if (userId === 'admin_jaasim' || userId === 'admin_jaasim_official') {
+      triggerNotice('Cannot delete primary administrator account.');
+      return;
+    }
+    try {
+      setUsers((prev) => prev.filter((u) => u.userId !== userId));
       await deleteDoc(doc(db, 'userProfiles', userId));
-      triggerNotice(`User "${name}" removed.`);
+      triggerNotice(`User "${name}" deleted from Firebase database.`);
+    } catch (err: any) {
+      triggerNotice(`Failed to delete user: ${err.message}`);
     }
   };
 
@@ -601,9 +613,12 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteAnnouncement = async (id: string) => {
-    if (window.confirm('Delete this announcement?')) {
+    try {
+      setAnnouncements((prev) => prev.filter((a) => a.id !== id));
       await deleteDoc(doc(db, 'announcements', id));
-      triggerNotice('Announcement removed.');
+      triggerNotice('Announcement deleted from Firebase.');
+    } catch (err: any) {
+      triggerNotice(`Failed to delete announcement: ${err.message}`);
     }
   };
 
@@ -630,9 +645,12 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteEvent = async (id: string, title: string) => {
-    if (window.confirm(`Delete event "${title}"?`)) {
+    try {
+      setEvents((prev) => prev.filter((e) => e.id !== id));
       await deleteDoc(doc(db, 'schoolEvents', id));
-      triggerNotice(`Event "${title}" removed.`);
+      triggerNotice(`Event "${title}" deleted from Firebase.`);
+    } catch (err: any) {
+      triggerNotice(`Failed to delete event: ${err.message}`);
     }
   };
 
@@ -728,11 +746,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
             {/* Horizontal Scrollable Tabs Container */}
             <div
               ref={tabsContainerRef}
-              className="flex-1 flex items-center gap-2 overflow-x-auto pb-3 pt-1 text-xs font-semibold scroll-smooth"
-              style={{
-                scrollbarWidth: 'thin',
-                scrollbarColor: '#ef4444 rgba(15, 23, 42, 0.5)',
-              }}
+              className="flex-1 flex items-center gap-2 admin-horizontal-scrollbar pb-3 pt-1 text-xs font-semibold scroll-smooth"
             >
               {[
                 { id: 'branding', label: 'Website Identity', icon: School },
@@ -2281,9 +2295,12 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                   </button>
                   <button
                     onClick={async () => {
-                      if (window.confirm(`Delete material "${m.title}"?`)) {
+                      try {
+                        setMaterials((prev) => prev.filter((mat) => mat.id !== m.id));
                         await deleteDoc(doc(db, 'learningMaterials', m.id));
-                        triggerNotice('Material removed.');
+                        triggerNotice(`Material "${m.title}" deleted from Firebase.`);
+                      } catch (err: any) {
+                        triggerNotice(`Failed to delete material: ${err.message}`);
                       }
                     }}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"

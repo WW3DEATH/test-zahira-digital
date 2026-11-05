@@ -409,7 +409,7 @@ export const AssignmentsPage: React.FC = () => {
       doc.text('Cohort: Zahira College 2k28 Science EM', 20, 46);
       doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 52);
       doc.text(`Total Coursework Items: ${assignments.length}`, 120, 46);
-      doc.text('Academic Lead: mnmjaasim@gmail.com', 120, 52);
+      doc.text('Project Oversight: Zahira College Mawanella Science Project management', 105, 52);
 
       let y = 62;
       assignments.forEach((assign, index) => {
@@ -612,7 +612,7 @@ export const AssignmentsPage: React.FC = () => {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text('Zahira College Mawanella • Official Academic Document', 20, 285);
+      doc.text('Zahira College Mawanella Science Project management • Official Academic Document', 20, 285);
 
       doc.save(`Zahira_College_Mawanella_Assignment_${assign.id}.pdf`);
     } catch (e) {

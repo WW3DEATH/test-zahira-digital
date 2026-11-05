@@ -200,7 +200,7 @@ export const AssessmentsPage: React.FC = () => {
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139);
       doc.text('OFFICIAL G.C.E. ADVANCED LEVEL ACADEMIC REPORT CARD', 20, 28);
-      doc.text('Mawanella, Sri Lanka • Academic Lead: mnmjaasim@gmail.com', 20, 33);
+      doc.text('Mawanella, Sri Lanka • Zahira College Mawanella Science Project management', 20, 33);
 
       doc.setDrawColor(203, 213, 225);
       doc.line(20, 37, 190, 37);

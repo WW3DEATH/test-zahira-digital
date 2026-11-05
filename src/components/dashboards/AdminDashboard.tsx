@@ -22,6 +22,7 @@ import {
   Check,
   Layers,
   Shield,
+  FlaskConical,
 } from 'lucide-react';
 import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -263,6 +264,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             >
               <ShieldCheck className="w-4 h-4" />
               <span>Master Admin Panel (Edit Website)</span>
+            </button>
+            <button
+              onClick={() => onNavigate('labs')}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md"
+            >
+              <FlaskConical className="w-4 h-4 text-emerald-200" />
+              <span>Virtual Science Labs</span>
             </button>
             <button
               onClick={() => onNavigate('admin_panel')}

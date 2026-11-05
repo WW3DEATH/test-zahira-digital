@@ -73,6 +73,49 @@
   background: #3b82f6;
 }
 
+/* Custom Admin Horizontal Scrollbar */
+.admin-horizontal-scrollbar {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #ef4444 rgba(15, 23, 42, 0.6);
+}
+.admin-horizontal-scrollbar::-webkit-scrollbar {
+  height: 8px;
+}
+.admin-horizontal-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 9999px;
+}
+.admin-horizontal-scrollbar::-webkit-scrollbar-thumb {
+  background: #ef4444;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.admin-horizontal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #dc2626;
+}
+
+/* Custom Modal / Sign In & Sign Up Scrollbar */
+.custom-auth-scrollbar {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3b82f6 rgba(241, 245, 249, 0.8);
+}
+.custom-auth-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-auth-scrollbar::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.8);
+  border-radius: 9999px;
+}
+.custom-auth-scrollbar::-webkit-scrollbar-thumb {
+  background: #3b82f6;
+  border-radius: 9999px;
+}
+.custom-auth-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #1d4ed8;
+}
+
 @media print {
   .no-print {
     display: none !important;

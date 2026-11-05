@@ -263,19 +263,17 @@ export const AttendancePage: React.FC = () => {
   };
 
   // Delete student from roll call
-  const handleDeleteStudent = async (studentId: string, name: string) => {
+  const handleDeleteStudent = async (studentId: string, _name: string) => {
     if (!isTeacherOrAdmin) return;
-    if (window.confirm(`Remove scholar "${name}" from class roll-call roster?`)) {
-      try {
-        await deleteDoc(doc(db, 'userProfiles', studentId));
-        setRegister((prev) => {
-          const updated = { ...prev };
-          delete updated[studentId];
-          return updated;
-        });
-      } catch (err) {
-        console.error('Failed to delete student:', err);
-      }
+    try {
+      setRegister((prev) => {
+        const updated = { ...prev };
+        delete updated[studentId];
+        return updated;
+      });
+      await deleteDoc(doc(db, 'userProfiles', studentId));
+    } catch (err) {
+      console.error('Failed to delete student:', err);
     }
   };
 
@@ -348,9 +346,7 @@ export const AttendancePage: React.FC = () => {
       });
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Certified by Zahira College Mawanella Academic Registrar • Printed for Official Records', 20, y + 15);
+      doc.text('Certified by Zahira College Mawanella Science Project management • Official Academic Record', 20, y + 15);
 
       doc.save(`Zahira_College_Mawanella_Attendance_${selectedDate}.pdf`);
     } catch (e) {
@@ -568,7 +564,7 @@ export const AttendancePage: React.FC = () => {
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
       doc.text(
-        'CONFIDENTIAL: Prepared exclusively for Zahira College 2k28 Science EM Faculty & Administration Internal Staff Records.',
+        'CONFIDENTIAL: Prepared exclusively by Zahira College Mawanella Science Project management for Internal Staff Records.',
         20,
         y + 18
       );

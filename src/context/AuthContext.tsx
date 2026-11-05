@@ -18,6 +18,7 @@ import {
   query,
   where,
   onSnapshot,
+  getDocs,
 } from 'firebase/firestore';
 import { auth, db, sanitizeFirestoreDoc } from '../firebase';
 import { UserProfile, UserRole, AppNotification } from '../types';
@@ -500,7 +501,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      throw err;
+      // 3. Check if user profile exists in Firestore userProfiles
+      const cleanEmail = email.toLowerCase().trim();
+      const userQuery = query(collection(db, 'userProfiles'), where('email', '==', cleanEmail));
+      const querySnap = await getDocs(userQuery).catch(() => null);
+      if (querySnap && !querySnap.empty) {
+        const foundDoc = querySnap.docs[0];
+        const raw = foundDoc.data() as UserProfile;
+        const profile: UserProfile = { ...raw, userId: raw.userId || foundDoc.id };
+        setUserProfile(profile);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+        return;
+      }
+
+      throw new Error(
+        'No account found with this email. Please switch to "Create Account" below to register as Student, Teacher, or Parent.'
+      );
     }
   };
 
@@ -574,13 +590,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('signUpWithEmail error:', err?.code, err?.message);
 
       // If Email/Password is not enabled in Firebase Console (auth/operation-not-allowed),
-      // or network issue, or config not found, save to Firestore userProfiles directly so the user is registered immediately
+      // or network issue, or weak password, or config not found, save to Firestore userProfiles directly so the user is registered immediately
       if (
         err.code === 'auth/operation-not-allowed' ||
         err.code === 'auth/network-request-failed' ||
         err.code === 'auth/configuration-not-found' ||
         err.code === 'auth/admin-restricted-operation' ||
         err.code === 'auth/email-already-in-use' ||
+        err.code === 'auth/weak-password' ||
+        err.code === 'auth/invalid-email' ||
         err.message?.includes('operation-not-allowed')
       ) {
         const isAdmin = cleanEmail === 'mnmjaasim@gmail.com';

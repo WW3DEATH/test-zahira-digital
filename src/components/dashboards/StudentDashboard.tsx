@@ -30,6 +30,7 @@ import {
   Flame,
   Zap,
   Target,
+  FlaskConical,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -316,6 +317,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <span>AI Science Study Planner</span>
             </button>
             <button
+              onClick={() => onNavigate('labs')}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-4 py-3 text-xs font-bold text-white transition-all shadow-md shrink-0"
+              title="Launch Bio Science and Physical Science interactive practical simulations"
+            >
+              <FlaskConical className="w-4 h-4 text-emerald-200" />
+              <span>Virtual Science Labs</span>
+            </button>
+            <button
               onClick={() => onNavigate('assignments')}
               className="inline-flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-3.5 py-3 text-xs font-semibold text-white transition-colors"
             >
@@ -330,6 +339,38 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <span>Socrates AI Tutor</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* VIRTUAL SCIENCE LABS QUICK ACCESS FEATURE BANNER */}
+      <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-indigo-500/10 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900/40 p-5 md:p-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="p-3 rounded-xl bg-emerald-600 text-white shadow-md shrink-0">
+              <FlaskConical className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+                  A/L Syllabus Interactive Laboratories
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Bio Science & Physical Science</span>
+              </div>
+              <h3 className="text-base md:text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">
+                G.C.E. A/L Virtual Practical Laboratories & Digital Apparatus
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl">
+                Perform real-time simulations for Cell Microscopy, Catalase Enzyme Kinetics, Transpiration Potometer, Vernier & Micrometer Zero Error, Simple Pendulum $g$, Ohm’s & Wheatstone Bridge, and Acid-Base Titration with automated report generation.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('labs')}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 text-xs font-bold shadow-md transition-all shrink-0 self-start md:self-center"
+          >
+            <span>Open Science Labs</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

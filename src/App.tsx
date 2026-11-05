@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SiteConfigProvider, useSiteConfig } from './context/SiteConfigContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -23,6 +23,7 @@ import { DiscussionsPage } from './pages/DiscussionsPage';
 import { TutorPage } from './pages/TutorPage';
 import { TeacherAssistantPage } from './pages/TeacherAssistantPage';
 import { UsersAdminPage } from './pages/UsersAdminPage';
+import { ScienceLabsPage } from './pages/ScienceLabsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AuthModal } from './components/common/AuthModal';
@@ -36,6 +37,13 @@ const MainApp: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [tutorInitialTopic, setTutorInitialTopic] = useState<string>('');
+
+  // Close authentication modal as soon as user is authenticated
+  useEffect(() => {
+    if (userProfile && authModalOpen) {
+      setAuthModalOpen(false);
+    }
+  }, [userProfile, authModalOpen]);
 
   const handleLaunchTutorTopic = (topic: string) => {
     setTutorInitialTopic(topic);
@@ -87,6 +95,8 @@ const MainApp: React.FC = () => {
         return <ClassesPage />;
       case 'subjects':
         return <SubjectsPage />;
+      case 'labs':
+        return <ScienceLabsPage />;
       case 'materials':
         return <MaterialsPage />;
       case 'assignments':

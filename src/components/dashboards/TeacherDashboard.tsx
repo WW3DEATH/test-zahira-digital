@@ -25,6 +25,7 @@ import {
   RefreshCw,
   AlertTriangle,
   Send,
+  FlaskConical,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -456,6 +457,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => onNavigate('labs')}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md"
+            >
+              <FlaskConical className="w-4 h-4 text-emerald-200" />
+              <span>Virtual Science Labs</span>
+            </button>
             <button
               onClick={() => onNavigate('quizzes')}
               className="inline-flex items-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md"

@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   User,
   LogIn,
+  FlaskConical,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSiteConfig } from '../../context/SiteConfigContext';
@@ -58,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return [
           { id: 'admin_panel', label: 'Master Admin Panel', icon: ShieldCheck, highlight: true },
           { id: 'dashboard', label: 'School Overview', icon: LayoutDashboard },
+          { id: 'labs', label: 'Virtual Science Labs', icon: FlaskConical, highlight: true },
           { id: 'calendar', label: 'Academic Calendar', icon: Calendar },
           { id: 'users_admin', label: 'Users & Roles', icon: Users },
           { id: 'classes', label: 'Classes & Cohorts', icon: GraduationCap },
@@ -76,6 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'teacher':
         return [
           { id: 'dashboard', label: 'Teacher Dashboard', icon: LayoutDashboard },
+          { id: 'labs', label: 'Virtual Science Labs', icon: FlaskConical, highlight: true },
           { id: 'calendar', label: 'Calendar & Timetables', icon: Calendar },
           { id: 'classes', label: 'My Classes', icon: GraduationCap },
           { id: 'subjects', label: 'My Subjects', icon: BookOpen },
@@ -94,6 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'student':
         return [
           { id: 'dashboard', label: 'Student Dashboard', icon: LayoutDashboard },
+          { id: 'labs', label: 'Virtual Science Labs', icon: FlaskConical, highlight: true },
           { id: 'calendar', label: 'School Calendar', icon: Calendar },
           { id: 'classes', label: 'My Classes', icon: GraduationCap },
           { id: 'materials', label: 'Study Materials', icon: BookMarked },
@@ -110,6 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'parent':
         return [
           { id: 'dashboard', label: 'Family Dashboard', icon: LayoutDashboard },
+          { id: 'labs', label: 'Virtual Science Labs', icon: FlaskConical, highlight: true },
           { id: 'calendar', label: 'School Calendar', icon: Calendar },
           { id: 'assessments', label: 'Report Cards & Marks', icon: Award },
           { id: 'attendance', label: 'Child Attendance', icon: CalendarCheck2 },
@@ -123,6 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       default:
         return [
           { id: 'dashboard', label: 'Portal Overview', icon: LayoutDashboard },
+          { id: 'labs', label: 'Virtual Science Labs', icon: FlaskConical, highlight: true },
           { id: 'materials', label: 'Study Materials', icon: BookMarked },
           { id: 'calendar', label: 'Academic Calendar', icon: Calendar },
           { id: 'classes', label: 'Cohorts & Subjects', icon: GraduationCap },

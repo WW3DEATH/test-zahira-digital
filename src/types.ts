@@ -404,3 +404,22 @@ export interface StudentBadgeSummary {
   levelTitle: string;
   currentStreakDays: number;
 }
+
+export interface ScheduledClass {
+  id: string;
+  classId: string;
+  className: string;
+  date: string; // YYYY-MM-DD
+  timeSlot: string; // e.g. "08:00 - 09:30"
+  periodName?: string; // e.g. "Period 1"
+  subject: string; // e.g. "Combined Mathematics", "Physics", "Chemistry", "Biology"
+  topic?: string;
+  teacherId: string;
+  teacherName: string;
+  room: string;
+  attendanceRecords?: Record<string, AttendanceStatus>;
+  attendanceTaken?: boolean;
+  notes?: string;
+  createdAt: string;
+}
+

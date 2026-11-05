@@ -213,6 +213,11 @@ export const AIStudyPlannerModal: React.FC<AIStudyPlannerModalProps> = ({
         }
       });
 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Certified by Zahira College Mawanella Science Project management • Official Academic Plan', 20, 285);
+
       doc.save(`Zahira_2k28_StudyPlan_${studyPlan.studentName.replace(/\s+/g, '_')}.pdf`);
     } catch (err) {
       console.error('PDF export error:', err);

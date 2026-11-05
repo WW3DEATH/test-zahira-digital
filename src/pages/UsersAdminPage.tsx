@@ -12,8 +12,9 @@ import {
   Link2,
   CheckSquare,
   Square,
+  Trash2,
 } from 'lucide-react';
-import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, UserRole } from '../types';
@@ -68,8 +69,31 @@ export const UsersAdminPage: React.FC = () => {
   const handleRoleChange = async (userId: string, updatedRole: UserRole) => {
     try {
       await setDoc(doc(db, 'userProfiles', userId), { role: updatedRole }, { merge: true });
+      setFeedback(`Role updated to ${updatedRole.toUpperCase()}`);
+      setTimeout(() => setFeedback(null), 3000);
     } catch (e) {
       console.error('Failed to update role:', e);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, name: string) => {
+    if (userId === 'admin_jaasim' || userId === 'admin_jaasim_official') {
+      setFeedback('Cannot delete primary administrator account.');
+      setTimeout(() => setFeedback(null), 3000);
+      return;
+    }
+    try {
+      // Optimistically remove from state
+      setUsers((prev) => prev.filter((u) => u.userId !== userId));
+      setSelectedUserIds((prev) => prev.filter((id) => id !== userId));
+      // Delete from Firebase Firestore
+      await deleteDoc(doc(db, 'userProfiles', userId));
+      setFeedback(`User "${name}" deleted from Firebase database.`);
+      setTimeout(() => setFeedback(null), 3500);
+    } catch (e: any) {
+      console.error('Delete user error:', e);
+      setFeedback(`Failed to delete user: ${e.message}`);
+      setTimeout(() => setFeedback(null), 3500);
     }
   };
 
@@ -214,6 +238,37 @@ export const UsersAdminPage: React.FC = () => {
               {bulkUpdating ? 'Applying...' : 'Apply to Selected'}
             </button>
             <button
+              onClick={async () => {
+                const toDelete = selectedUserIds.filter(
+                  (id) => id !== 'admin_jaasim' && id !== 'admin_jaasim_official'
+                );
+                if (toDelete.length === 0) {
+                  setFeedback('Cannot delete primary administrator account.');
+                  setTimeout(() => setFeedback(null), 3000);
+                  return;
+                }
+                setBulkUpdating(true);
+                try {
+                  setUsers((prev) => prev.filter((u) => !toDelete.includes(u.userId)));
+                  for (const uid of toDelete) {
+                    await deleteDoc(doc(db, 'userProfiles', uid));
+                  }
+                  setFeedback(`Permanently deleted ${toDelete.length} account(s) from Firebase database.`);
+                  setSelectedUserIds([]);
+                } catch (err: any) {
+                  setFeedback(`Failed to delete accounts: ${err.message}`);
+                } finally {
+                  setBulkUpdating(false);
+                  setTimeout(() => setFeedback(null), 4000);
+                }
+              }}
+              disabled={bulkUpdating}
+              className="rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-3 py-1 text-xs font-bold text-white transition-colors flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedUserIds.length})</span>
+            </button>
+            <button
               onClick={() => setSelectedUserIds([])}
               className="text-xs text-stone-500 hover:text-stone-800 underline ml-1"
             >
@@ -316,16 +371,28 @@ export const UsersAdminPage: React.FC = () => {
                       : 'Child Progress Access'}
                   </td>
                   <td className="py-3.5 px-4">
-                    <select
-                      value={user.role}
-                      onChange={(e) => handleRoleChange(user.userId, e.target.value as UserRole)}
-                      className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none"
-                    >
-                      <option value="student">Set as Student</option>
-                      <option value="teacher">Set as Teacher</option>
-                      <option value="parent">Set as Parent</option>
-                      <option value="admin">Set as Admin</option>
-                    </select>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={user.role}
+                        onChange={(e) => handleRoleChange(user.userId, e.target.value as UserRole)}
+                        className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none"
+                      >
+                        <option value="student">Set as Student</option>
+                        <option value="teacher">Set as Teacher</option>
+                        <option value="parent">Set as Parent</option>
+                        <option value="admin">Set as Admin</option>
+                      </select>
+                      {user.userId !== 'admin_jaasim' && user.userId !== 'admin_jaasim_official' && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUser(user.userId, user.fullName)}
+                          className="p-1.5 rounded-lg text-rose-500 hover:text-white hover:bg-rose-600 transition-colors"
+                          title="Delete user account from Firebase"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

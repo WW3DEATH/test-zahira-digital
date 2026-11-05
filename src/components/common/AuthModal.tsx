@@ -8,7 +8,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { userProfile, signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +22,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [parentRelationship, setParentRelationship] = useState('Father');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Automatically close sign-in dialog as soon as user is authenticated
+  React.useEffect(() => {
+    if (userProfile && isOpen) {
+      onClose();
+    }
+  }, [userProfile, isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -67,7 +74,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl border border-blue-100 bg-white p-6 md:p-8 shadow-2xl relative">
+      <div className="w-full max-w-md max-h-[90vh] custom-auth-scrollbar rounded-2xl border border-blue-100 bg-white p-6 md:p-8 shadow-2xl relative">
         <button
           onClick={onClose}
           className="absolute top-5 right-5 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
