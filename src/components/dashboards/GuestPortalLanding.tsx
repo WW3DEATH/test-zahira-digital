@@ -78,7 +78,7 @@ export const GuestPortalLanding: React.FC<GuestPortalLandingProps> = ({
                 Authentication Required
               </h2>
               <p className="text-xs text-slate-600 mt-1 max-w-xl leading-relaxed">
-                All accounts and records are protected. Faculty instructors, enrolled scholars, and administrators must log in with their credentials to view private cohort rosters, grades, and communication channels.
+                All accounts and records are protected. Faculty instructors, enrolled scholars, and academic leaders must log in with their credentials to view private cohort rosters, grades, and communication channels.
               </p>
             </div>
           </div>
@@ -121,7 +121,7 @@ export const GuestPortalLanding: React.FC<GuestPortalLandingProps> = ({
           </div>
           <h3 className="font-serif text-lg font-bold text-blue-950">Academic Leadership</h3>
           <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-            Manage institutional settings, curriculum syllabi, user permissions, examination schedules, and official school circulars via the Master Admin Panel.
+            Manage institutional settings, curriculum syllabi, user permissions, examination schedules, and official school circulars via the Faculty Management Console.
           </p>
         </div>
       </div>

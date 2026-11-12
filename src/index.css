@@ -116,6 +116,30 @@
   background: #1d4ed8;
 }
 
+/* Side View Navigation Scrollbar */
+.side-view-scrollbar {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 rgba(241, 245, 249, 0.4);
+}
+.side-view-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.side-view-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+.side-view-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+.dark .side-view-scrollbar::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.side-view-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #0095ff;
+}
+
 @media print {
   .no-print {
     display: none !important;

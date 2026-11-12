@@ -62,11 +62,16 @@ export const ProfilePage: React.FC = () => {
             className="w-20 h-20 rounded-2xl border-2 border-amber-300 object-cover shadow-sm"
           />
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-serif text-xl font-bold text-stone-900">{fullName}</h3>
               <span className="rounded bg-amber-100 text-amber-800 font-bold px-2 py-0.5 text-[10px] uppercase">
                 {activeRole}
               </span>
+              {(userProfile?.indexNumber || activeRole === 'student' || userProfile?.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com') && (
+                <span className="rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono font-bold px-2.5 py-0.5 text-[11px]">
+                  Index: {userProfile?.indexNumber || '2860003'}
+                </span>
+              )}
             </div>
             <p className="text-xs text-stone-500 font-mono mt-0.5">{userProfile?.email}</p>
             <p className="text-xs text-stone-600 mt-1.5 max-w-md">{bio}</p>
@@ -96,6 +101,18 @@ export const ProfilePage: React.FC = () => {
               disabled
               value={userProfile?.email || 'user@academia.edu'}
               className="w-full rounded-xl border border-stone-200 bg-stone-100 p-2.5 text-stone-500 font-mono cursor-not-allowed"
+            />
+          </div>
+
+          <div>
+            <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[11px]">
+              Official Student Index Number (ZNC 2k28 Science)
+            </label>
+            <input
+              type="text"
+              disabled
+              value={userProfile?.indexNumber || (userProfile?.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com' ? '2860003' : '2860003')}
+              className="w-full rounded-xl border border-blue-200 bg-blue-50/50 p-2.5 text-blue-800 font-mono font-bold cursor-not-allowed"
             />
           </div>
 

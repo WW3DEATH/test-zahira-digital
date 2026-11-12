@@ -129,20 +129,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   }, []);
 
   const pendingSubmissions = submissions.filter((s) => s.status === 'submitted' || s.status === 'under_review');
-  const myClasses = classes.length > 0 ? classes : [
-    {
-      id: 'class-2k28-science-em',
-      name: '2k28 Science EM',
-      grade: 'A/L Batch 2028',
-      academicYear: '2026-2028',
-      description: 'Zahira College 2k28 Science EM Cohort',
-      room: 'Science Complex - Hall 28',
-      teacherIds: [],
-      studentIds: [],
-      subjectIds: [],
-      createdAt: '',
-    },
-  ];
+  const myClasses = classes;
 
   // Calculate student attendance trends over the last 30 days
   const attendanceTrendData = useMemo(() => {
@@ -339,7 +326,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           studentIndex: st.indexNumber,
           attendanceRate: st.attendanceRate,
           totalSessions: st.sessions,
-          classId: selectedClassId !== 'all' ? selectedClassId : 'class-2k28-science-em',
+          classId: selectedClassId !== 'all' ? selectedClassId : 'general',
         });
         localStorage.setItem(storageKey, 'true');
         setAlertDispatchedMap((prev) => ({ ...prev, [st.userId]: true }));
@@ -356,7 +343,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       studentIndex: student.indexNumber,
       attendanceRate: student.attendanceRate,
       totalSessions: student.sessions,
-      classId: selectedClassId !== 'all' ? selectedClassId : 'class-2k28-science-em',
+      classId: selectedClassId !== 'all' ? selectedClassId : 'general',
     });
     const today = new Date().toISOString().split('T')[0];
     localStorage.setItem(`zahira_low_att_admin_alert_${student.userId}_${today}`, 'true');
@@ -785,11 +772,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   Low Attendance Threshold Intervention (&lt; 75%)
                 </h3>
                 <span className="rounded-full bg-rose-100 text-rose-800 border border-rose-200 px-2.5 py-0.5 text-[10px] font-bold">
-                  Automated Admin Alerts Active
+                  Automated Directorate Alerts Active
                 </span>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
-                Students below 75% attendance are automatically flagged and dispatched as priority intervention notifications to the Admin portal.
+                Students below 75% attendance are automatically flagged and dispatched as priority intervention notifications to the Directorate portal.
               </p>
             </div>
           </div>
@@ -817,7 +804,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </p>
             </div>
             <span className="text-[11px] text-emerald-700 font-bold shrink-0">
-              Admin Status: Clear
+              Directorate Status: Clear
             </span>
           </div>
         ) : (
@@ -854,7 +841,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold">
                       <ShieldCheck className="w-3.5 h-3.5 text-rose-600" />
-                      <span>{isSent ? 'Dispatched to Admin Portal' : 'Admin Alert Queued'}</span>
+                      <span>{isSent ? 'Dispatched to Directorate' : 'Directorate Alert Queued'}</span>
                     </div>
                     <button
                       onClick={() => handleManualDispatchAlert(st)}

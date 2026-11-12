@@ -82,7 +82,7 @@ export const DiscussionsPage: React.FC = () => {
         authorName: userProfile?.fullName || 'Zahira Member',
         authorRole: activeRole,
         category: newCategory,
-        classId: 'class-2k28-science-em',
+        classId: 'general',
         subjectId: 'sub-cmath',
         tags: newTags.split(',').map((t) => t.trim()).filter(Boolean),
         repliesCount: 0,

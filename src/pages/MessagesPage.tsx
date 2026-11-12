@@ -89,13 +89,13 @@ export const MessagesPage: React.FC = () => {
           // Initialize default Zahira 2k28 academic conversation
           const defaultConv: Conversation = {
             id: 'conv-zahira-lead',
-            participantIds: ['admin_jaasim', userProfile?.userId || 'student_user'],
+            participantIds: ['faculty_lead', userProfile?.userId || 'student_user'],
             participantNames: {
-              admin_jaasim: 'M. N. M. Jaasim (Admin)',
+              faculty_lead: 'Science Academic Faculty Lead',
               [userProfile?.userId || 'student_user']: userProfile?.fullName || 'Scholar',
             },
             requestStatus: 'accepted',
-            requestedBy: 'admin_jaasim',
+            requestedBy: 'faculty_lead',
             requestedTo: userProfile?.userId || 'student_user',
             lastMessage: 'Welcome to Zahira College 2k28 Science EM academic messaging.',
             lastMessageAt: new Date().toISOString(),
@@ -194,6 +194,38 @@ export const MessagesPage: React.FC = () => {
       );
     } catch (e) {
       console.error('Failed to decline chat request:', e);
+    }
+  };
+
+  // Re-send consultation request after decline
+  const handleResendRequest = async () => {
+    if (!activeConv || !activeConversationId || !otherParticipantId) return;
+    const myId = userProfile?.userId || 'user_anon';
+    const myName = userProfile?.fullName || 'Scholar';
+
+    try {
+      await setDoc(
+        doc(db, 'conversations', activeConversationId),
+        {
+          requestStatus: 'pending',
+          requestedBy: myId,
+          requestedTo: otherParticipantId,
+          updatedAt: new Date().toISOString(),
+          lastMessage: `Consultation request re-sent by ${myName}. Awaiting acceptance.`,
+          lastMessageAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      await sendDirectNotification({
+        recipientId: otherParticipantId,
+        title: `💬 New Academic Consultation Request`,
+        message: `${myName} has re-sent a 1-on-1 consultation request. Please accept or decline in Messages.`,
+        link: 'messages',
+        type: 'message',
+      });
+    } catch (e) {
+      console.error('Failed to resend request:', e);
     }
   };
 
@@ -493,11 +525,28 @@ export const MessagesPage: React.FC = () => {
           )}
 
           {requestStatus === 'declined' && (
-            <div className="p-4 border-b border-rose-200 bg-rose-50/80 flex items-center gap-2.5 text-xs text-rose-900">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <p>
-                This academic consultation request was declined. Private messaging is locked for this channel.
-              </p>
+            <div className="p-4 border-b border-rose-200 bg-rose-50/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-900">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold text-rose-950">Consultation Request Declined</h4>
+                  <p className="text-[11px] text-rose-800 mt-0.5">
+                    {isSenderOfRequest
+                      ? 'The user declined your request. You cannot text this person until they accept a consultation request.'
+                      : 'You declined this consultation request. Direct messaging remains locked.'}
+                  </p>
+                </div>
+              </div>
+
+              {isSenderOfRequest && (
+                <button
+                  onClick={handleResendRequest}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-900 hover:bg-blue-950 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs shrink-0 self-end sm:self-auto"
+                >
+                  <Send className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Send Request Again</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -643,11 +692,13 @@ export const MessagesPage: React.FC = () => {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-bold text-stone-900">{u.fullName}</p>
+                          <p className="font-bold text-stone-900">
+                            {u.fullName?.replace(/\s*\(Admin.*?\)/gi, '')}
+                          </p>
                           <span
                             className={`rounded px-2 py-0.2 text-[9px] font-bold uppercase ${
                               u.role === 'admin'
-                                ? 'bg-rose-100 text-rose-800'
+                                ? 'bg-blue-100 text-blue-900'
                                 : u.role === 'teacher'
                                 ? 'bg-blue-100 text-blue-900'
                                 : u.role === 'parent'
@@ -655,7 +706,7 @@ export const MessagesPage: React.FC = () => {
                                 : 'bg-emerald-100 text-emerald-800'
                             }`}
                           >
-                            {u.role}
+                            {u.role === 'admin' ? 'Faculty Lead' : u.role}
                           </span>
                         </div>
                         <p className="text-[11px] text-stone-500 mt-0.5">

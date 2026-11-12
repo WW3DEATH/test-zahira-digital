@@ -5,6 +5,7 @@ export interface UserProfile {
   email: string;
   fullName: string;
   role: UserRole;
+  indexNumber?: string; // Official Zahira College 2k28 Science EM Student Index (e.g., '2860003', '2860004')
   avatarUrl?: string;
   bio?: string;
   phone?: string;
@@ -15,6 +16,14 @@ export interface UserProfile {
   linkedStudentIds?: string[]; // For parents
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface RosterStudent {
+  id: string; // e.g. 'roster_2860001'
+  fullName: string;
+  indexNumber: string; // e.g. '2860001' or '2K28-SCI-001'
+  classId?: string; // class cohort or 'general'
+  createdAt: string;
 }
 
 export interface SchoolClass {

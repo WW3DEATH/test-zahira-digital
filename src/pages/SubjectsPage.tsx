@@ -50,8 +50,8 @@ export const SubjectsPage: React.FC = () => {
         name: newName.trim(),
         description: newDesc.trim(),
         color: newColor,
-        teacherIds: [userProfile?.userId || 'admin_jaasim'],
-        classIds: ['class-2k28-science-em'],
+        teacherIds: userProfile?.role === 'teacher' ? [userProfile.userId] : [],
+        classIds: [],
         createdAt: new Date().toISOString(),
       };
 

@@ -24,17 +24,60 @@ import {
   Beaker,
   Gauge,
   Flame,
+  CheckSquare,
+  FileText,
+  FileCheck2,
+  FolderOpen,
+  Filter,
+  Check,
+  Search,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useAuth } from '../context/AuthContext';
+import { PRACTICAL_GUIDES, PracticalGuide } from '../data/practicalGuidesData';
+import { MathsPracticalSimulators } from '../components/labs/MathsPracticalSimulators';
+import { PracticalGuidesRepository } from '../components/labs/PracticalGuidesRepository';
+import { PDFPreviewModal, PDFPreviewData } from '../components/common/PDFPreviewModal';
 
 type LabDiscipline = 'bio' | 'physical';
+type LabViewMode = 'simulators' | 'repository' | 'checklists';
 
 export const ScienceLabsPage: React.FC = () => {
   const { userProfile } = useAuth();
+  const [labViewMode, setLabViewMode] = useState<LabViewMode>('simulators');
   const [activeLab, setActiveLab] = useState<LabDiscipline>('bio');
   const [selectedBioExp, setSelectedBioExp] = useState<number>(0);
   const [selectedPhysExp, setSelectedPhysExp] = useState<number>(0);
+  const [physicalCategoryFilter, setPhysicalCategoryFilter] = useState<'all' | 'maths' | 'physics' | 'chemistry'>('all');
+  const [activeChecklistId, setActiveChecklistId] = useState<string>('math-1');
+  const [checklistSearchQuery, setChecklistSearchQuery] = useState<string>('');
+  const [checklistFilter, setChecklistFilter] = useState<'all' | 'bio' | 'physics' | 'maths' | 'chemistry'>('all');
+
+  // Interactive Live PDF Preview Modal State
+  const [previewPDFData, setPreviewPDFData] = useState<PDFPreviewData | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Stored state for checklist steps
+  const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('zahira_practical_checked_steps');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const toggleChecklistStep = (key: string) => {
+    setCheckedSteps((prev) => {
+      const updated = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem('zahira_practical_checked_steps', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+  };
 
   // Bio Lab 1: Microscope State
   const [micObjective, setMicObjective] = useState<number>(10); // 4x, 10x, 40x, 100x
@@ -81,122 +124,274 @@ export const ScienceLabsPage: React.FC = () => {
   const [titrationIndicator, setTitrationIndicator] = useState<'phenolphthalein' | 'methyl_orange'>('phenolphthalein');
   const [titrationEndpointHit, setTitrationEndpointHit] = useState<boolean>(false);
 
-  // Export Laboratory Practical Report PDF
+  // Generate Laboratory Practical Report jsPDF instance
+  const generateLabReportPDF = (discipline: LabDiscipline, expTitle: string, syllabusCode: string): jsPDF => {
+    const doc = new jsPDF();
+
+    // Official Header
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('G.C.E. ADVANCED LEVEL VIRTUAL SCIENCE PRACTICAL LABORATORY REPORT', 20, 26);
+    doc.text(`Discipline: ${discipline === 'bio' ? 'Biological Science Practical Unit' : 'Physical Science Practical Unit'}`, 20, 31);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 35, 190, 35);
+
+    // Student and experiment metadata
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(20, 40, 170, 16, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Practical Syllabus Ref: ${syllabusCode}`, 24, 46);
+    doc.text(`Scholar: ${userProfile?.fullName || 'Zahira Science Scholar'} (${userProfile?.email || '2k28-science@zahira.edu'})`, 24, 52);
+    doc.text(`Date Completed: ${new Date().toLocaleDateString()}`, 125, 46);
+    doc.text('Cohort: A/L 2028 Science EM', 125, 52);
+
+    // Experiment Title Banner
+    doc.setFillColor(discipline === 'bio' ? 236 : 239, discipline === 'bio' ? 253 : 246, discipline === 'bio' ? 245 : 255);
+    doc.roundedRect(20, 60, 170, 10, 1.5, 1.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(discipline === 'bio' ? 6 : 30, discipline === 'bio' ? 95 : 64, discipline === 'bio' ? 70 : 175);
+    doc.text(`Experiment: ${expTitle}`, 24, 66.5);
+
+    // Theory & Syllabus Formulation
+    let y = 78;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('1. Principle & Theoretical Background', 20, y);
+
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const theoryText = discipline === 'bio'
+      ? 'Standard G.C.E. Advanced Level Biology curriculum practical. Investigates biological structures, enzyme kinetics, cellular respiration, and tissue water potential through quantitative and qualitative experimental protocols.'
+      : 'Standard G.C.E. Advanced Level Physics & Physical Chemistry curriculum practical. Investigates fundamental physical constants, metrology error analysis, circuit analysis, kinematics, optics, and volumetric stoichiometry.';
+    const theoryLines = doc.splitTextToSize(theoryText, 170);
+    doc.text(theoryLines, 20, y);
+    y += theoryLines.length * 5 + 6;
+
+    // Apparatus & Materials
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('2. Apparatus, Reagents & Experimental Setup', 20, y);
+
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const apparatusList = discipline === 'bio'
+      ? '• Compound Light Microscope (4x, 10x, 40x, 100x oil immersion)\n• Glass slides, coverslips, mounted needles, methylene blue, iodine stain\n• Water bath (0 - 100°C), boiling tubes, graduated gas syringe, digital balance\n• Potato tuber cylinders, sucrose solutions (0.0M to 1.0M), Audus micro-burette'
+      : '• Vernier Calipers & Micrometer Screw Gauge (0.01 mm precision)\n• Simple Pendulum with photogate timer & meter rule (length calibration)\n• Searle\'s Young\'s Modulus wire tensile apparatus & slotted weights\n• Meter Bridge (Wheatstone Bridge wire, galvanometer, standard resistance box)\n• Precision 50 ml burette, pipette, conical flask, phenolphthalein indicator';
+    const appLines = doc.splitTextToSize(apparatusList, 170);
+    doc.text(appLines, 20, y);
+    y += appLines.length * 5 + 8;
+
+    // Observations Table
+    doc.setFillColor(241, 245, 249);
+    doc.rect(20, y, 170, 7.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text('3. LABORATORY OBSERVATIONS & TRIAL MEASUREMENTS', 24, y + 5);
+
+    y += 12;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Trial 1: Recorded with high precision according to laboratory protocol.', 24, y);
+    doc.text('Trial 2: Calibrated for zero-error and ambient environmental fluctuations.', 24, y + 5);
+    doc.text('Trial 3: Mean evaluated to minimize random and systematic experimental errors.', 24, y + 10);
+    y += 20;
+
+    // Verification & Certification Sign-Off
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, y, 190, y);
+    y += 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Certified by Academic Administration:', 20, y);
+
+    y += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Zahira College Mawanella Science Project management', 20, y);
+
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Faculty Verified • Official G.C.E. Advanced Level Science Practical Record Sheet', 20, y);
+
+    return doc;
+  };
+
+  // Preview Lab Report in interactive modal
+  const handlePreviewLabReportPDF = (discipline: LabDiscipline, expTitle: string, syllabusCode: string) => {
+    try {
+      const doc = generateLabReportPDF(discipline, expTitle, syllabusCode);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewPDFData({
+        title: `Lab Report: ${expTitle}`,
+        filename: `Zahira_College_${discipline === 'bio' ? 'Bio' : 'Physical'}_Lab_${expTitle.replace(/\s+/g, '_')}.pdf`,
+        blobUrl,
+        blob,
+        category: discipline === 'bio' ? 'Biological Science Lab' : 'Physical Science Lab',
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('Failed to preview lab report:', e);
+    }
+  };
+
+  // Export Laboratory Practical Report PDF download
   const handleExportLabReportPDF = (discipline: LabDiscipline, expTitle: string, syllabusCode: string) => {
     try {
-      const doc = new jsPDF();
-
-      // Official Header
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text('G.C.E. ADVANCED LEVEL VIRTUAL SCIENCE PRACTICAL LABORATORY REPORT', 20, 26);
-      doc.text(`Discipline: ${discipline === 'bio' ? 'Biological Science Practical Unit' : 'Physical Science Practical Unit'}`, 20, 31);
-
-      doc.setDrawColor(203, 213, 225);
-      doc.line(20, 35, 190, 35);
-
-      // Student and experiment metadata
-      doc.setFillColor(241, 245, 249);
-      doc.roundedRect(20, 40, 170, 16, 2, 2, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(30, 41, 59);
-      doc.text(`Practical Syllabus Ref: ${syllabusCode}`, 24, 46);
-      doc.text(`Scholar: ${userProfile?.fullName || 'Zahira Science Scholar'} (${userProfile?.email || '2k28-science@zahira.edu'})`, 24, 52);
-      doc.text(`Date Completed: ${new Date().toLocaleDateString()}`, 125, 46);
-      doc.text('Cohort: A/L 2028 Science EM', 125, 52);
-
-      // Experiment Title Banner
-      doc.setFillColor(discipline === 'bio' ? 236 : 239, discipline === 'bio' ? 253 : 246, discipline === 'bio' ? 245 : 255);
-      doc.roundedRect(20, 60, 170, 10, 1.5, 1.5, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.setTextColor(discipline === 'bio' ? 6 : 30, discipline === 'bio' ? 95 : 64, discipline === 'bio' ? 70 : 175);
-      doc.text(`Experiment: ${expTitle}`, 24, 66.5);
-
-      // Theory & Syllabus Formulation
-      let y = 78;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('1. Principle & Theoretical Background', 20, y);
-
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(51, 65, 85);
-      const theoryText = discipline === 'bio'
-        ? 'Standard G.C.E. Advanced Level Biology curriculum practical. Investigates biological structures, enzyme kinetics, cellular respiration, and tissue water potential through quantitative and qualitative experimental protocols.'
-        : 'Standard G.C.E. Advanced Level Physics & Physical Chemistry curriculum practical. Investigates fundamental physical constants, metrology error analysis, circuit analysis, kinematics, optics, and volumetric stoichiometry.';
-      const theoryLines = doc.splitTextToSize(theoryText, 170);
-      doc.text(theoryLines, 20, y);
-      y += theoryLines.length * 5 + 6;
-
-      // Apparatus & Materials
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('2. Apparatus, Reagents & Experimental Setup', 20, y);
-
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(51, 65, 85);
-      const apparatusList = discipline === 'bio'
-        ? '• Compound Light Microscope (4x, 10x, 40x, 100x oil immersion)\n• Glass slides, coverslips, mounted needles, methylene blue, iodine stain\n• Water bath (0 - 100°C), boiling tubes, graduated gas syringe, digital balance\n• Potato tuber cylinders, sucrose solutions (0.0M to 1.0M), Audus micro-burette'
-        : '• Vernier Calipers & Micrometer Screw Gauge (0.01 mm precision)\n• Simple Pendulum with photogate timer & meter rule (length calibration)\n• Searle\'s Young\'s Modulus wire tensile apparatus & slotted weights\n• Meter Bridge (Wheatstone Bridge wire, galvanometer, standard resistance box)\n• Precision 50 ml burette, pipette, conical flask, phenolphthalein indicator';
-      const appLines = doc.splitTextToSize(apparatusList, 170);
-      doc.text(appLines, 20, y);
-      y += appLines.length * 5 + 8;
-
-      // Observations Table
-      doc.setFillColor(241, 245, 249);
-      doc.rect(20, y, 170, 7.5, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(30, 41, 59);
-      doc.text('3. LABORATORY OBSERVATIONS & TRIAL MEASUREMENTS', 24, y + 5);
-
-      y += 12;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Trial 1: Recorded with high precision according to laboratory protocol.', 24, y);
-      doc.text('Trial 2: Calibrated for zero-error and ambient environmental fluctuations.', 24, y + 5);
-      doc.text('Trial 3: Mean evaluated to minimize random and systematic experimental errors.', 24, y + 10);
-      y += 20;
-
-      // Verification & Certification Sign-Off
-      doc.setDrawColor(226, 232, 240);
-      doc.line(20, y, 190, y);
-      y += 8;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Certified by Academic Administration:', 20, y);
-
-      y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Zahira College Mawanella Science Project management', 20, y);
-
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Faculty Verified • Official G.C.E. Advanced Level Science Practical Record Sheet', 20, y);
-
+      const doc = generateLabReportPDF(discipline, expTitle, syllabusCode);
       doc.save(`Zahira_College_${discipline === 'bio' ? 'Bio' : 'Physical'}_Lab_${expTitle.replace(/\s+/g, '_')}.pdf`);
     } catch (e) {
       console.error('Lab report export error:', e);
+    }
+  };
+
+  // Generate Syllabus Checklist jsPDF instance
+  const generateChecklistPDF = (guide: PracticalGuide): jsPDF => {
+    const doc = new jsPDF();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('OFFICIAL G.C.E. A/L PRACTICAL SYLLABUS VERIFICATION CHECKLIST', 20, 26);
+    doc.text(`Subject: ${guide.subjectName} • Syllabus Unit: ${guide.syllabusUnit}`, 20, 31);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 35, 190, 35);
+
+    // Student and practical metadata
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(20, 40, 170, 16, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Practical Code: ${guide.code}`, 24, 46);
+    doc.text(`Scholar: ${userProfile?.fullName || 'Zahira Science Scholar'} (${userProfile?.email || '2k28-science@zahira.edu'})`, 24, 52);
+    doc.text(`Date Verified: ${new Date().toLocaleDateString()}`, 125, 46);
+    doc.text('Cohort: A/L 2028 Science EM', 125, 52);
+
+    // Title
+    doc.setFillColor(239, 246, 255);
+    doc.roundedRect(20, 60, 170, 10, 1.5, 1.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(30, 64, 175);
+    doc.text(`Experiment: ${guide.title}`, 24, 66.5);
+
+    let y = 78;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Practical Syllabus Checklist Items & Completion Status:', 20, y);
+    y += 8;
+
+    let completedCount = 0;
+    guide.checklistSteps.forEach((step, idx) => {
+      const stepKey = `${guide.id}-step-${idx}`;
+      const isDone = !!checkedSteps[stepKey];
+      if (isDone) completedCount++;
+
+      doc.setFillColor(isDone ? 236 : 248, isDone ? 253 : 250, isDone ? 245 : 252);
+      doc.roundedRect(20, y, 170, 10, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(isDone ? 22 : 100, isDone ? 101 : 116, isDone ? 52 : 139);
+      doc.text(isDone ? '[ COMPLETED ]' : '[ PENDING ]', 24, y + 6.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(30, 41, 59);
+      const stepText = `${idx + 1}. ${step}`;
+      const truncated = stepText.length > 70 ? `${stepText.substring(0, 70)}...` : stepText;
+      doc.text(truncated, 58, y + 6.5);
+
+      y += 12;
+    });
+
+    y += 4;
+    const pct = Math.round((completedCount / guide.checklistSteps.length) * 100);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(pct === 100 ? 22 : 30, pct === 100 ? 101 : 41, pct === 100 ? 52 : 59);
+    doc.text(`Overall Practical Syllabus Completion: ${completedCount} / ${guide.checklistSteps.length} Steps (${pct}%)`, 20, y);
+
+    y += 15;
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, y, 190, y);
+    y += 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Certified by Academic Administration:', 20, y);
+
+    y += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Zahira College Mawanella Science Project management', 20, y);
+
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Official Syllabus Competency Verification • Zahira College 2k28 Science EM', 20, y);
+
+    return doc;
+  };
+
+  // Preview Checklist PDF in interactive modal
+  const handlePreviewChecklistPDF = (guide: PracticalGuide) => {
+    try {
+      const doc = generateChecklistPDF(guide);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewPDFData({
+        title: `Practical Checklist: ${guide.code}`,
+        filename: `Zahira_Practical_Checklist_${guide.code}.pdf`,
+        blobUrl,
+        blob,
+        category: `${guide.subjectName} Syllabus Checklist`,
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('Failed to preview checklist PDF:', e);
+    }
+  };
+
+  // Export Syllabus Checklist PDF download
+  const handleExportChecklistPDF = (guide: PracticalGuide) => {
+    try {
+      const doc = generateChecklistPDF(guide);
+      doc.save(`Zahira_Practical_Checklist_${guide.code}.pdf`);
+    } catch (e) {
+      console.error('Checklist PDF export error:', e);
     }
   };
 
@@ -260,11 +455,12 @@ export const ScienceLabsPage: React.FC = () => {
     },
   ];
 
-  // Physical Science Practicals Syllabus Array
+  // Physical Science Practicals Syllabus Array (Physics, Chemistry & Combined Mathematics)
   const physicalPracticals = [
     {
       id: 'phys-1',
       code: 'PHYS-PRAC-01',
+      category: 'physics' as const,
       title: 'Precision Metrology: Vernier Caliper & Micrometer Screw Gauge',
       duration: '45 mins',
       objective: 'Measure internal/external diameters, sphere volume, wire thickness, with zero-error calibration and vernier coincidence.',
@@ -272,6 +468,7 @@ export const ScienceLabsPage: React.FC = () => {
     {
       id: 'phys-2',
       code: 'PHYS-PRAC-02',
+      category: 'physics' as const,
       title: 'Simple Pendulum & Determination of Acceleration due to Gravity (g)',
       duration: '40 mins',
       objective: 'Vary pendulum length (0.2m to 1.4m), time 20 oscillations, plot T² vs L graph, and determine experimental g = 4π²/slope.',
@@ -279,6 +476,7 @@ export const ScienceLabsPage: React.FC = () => {
     {
       id: 'phys-3',
       code: 'PHYS-PRAC-03',
+      category: 'physics' as const,
       title: 'Hooke’s Law & Young’s Modulus via Searle’s Apparatus',
       duration: '50 mins',
       objective: 'Apply slotted weights to metal wire, measure micro-extension using micrometer spirit level, compute stress/strain and Young’s Modulus.',
@@ -286,6 +484,7 @@ export const ScienceLabsPage: React.FC = () => {
     {
       id: 'phys-4',
       code: 'PHYS-PRAC-04',
+      category: 'physics' as const,
       title: 'Ohm’s Law & Resistance / Resistivity via Meter Bridge',
       duration: '50 mins',
       objective: 'Verify linear V-I relation; use 1-meter Wheatstone wire bridge with null galvanometer deflection to find unknown resistor X and resistivity ρ.',
@@ -293,6 +492,7 @@ export const ScienceLabsPage: React.FC = () => {
     {
       id: 'phys-5',
       code: 'PHYS-PRAC-05',
+      category: 'physics' as const,
       title: 'Snell’s Law, Refractive Index & Prism Angle of Minimum Deviation',
       duration: '45 mins',
       objective: 'Trace laser rays through semicircular block to find critical angle θc and equilateral glass prism to find Dm and n.',
@@ -300,13 +500,15 @@ export const ScienceLabsPage: React.FC = () => {
     {
       id: 'phys-6',
       code: 'PHYS-PRAC-06',
+      category: 'physics' as const,
       title: 'Speed of Sound via Resonance Tube & Calibrated Tuning Forks',
       duration: '40 mins',
       objective: 'Tune column water height to find 1st resonance (λ/4) and 2nd resonance (3λ/4), calculating speed of sound v = 2f(L₂ - L₁).',
     },
     {
       id: 'phys-7',
-      code: 'PHYS-PRAC-07',
+      code: 'CHEM-PRAC-01',
+      category: 'chemistry' as const,
       title: 'Acid-Base Volumetric Titration (HCl vs 0.100 M NaOH)',
       duration: '50 mins',
       objective: 'Perform dropwise burette titration with phenolphthalein indicator, plot pH titration curve, and calculate molarity CaVa = CbVb.',
@@ -314,9 +516,50 @@ export const ScienceLabsPage: React.FC = () => {
     {
       id: 'phys-8',
       code: 'PHYS-PRAC-08',
+      category: 'physics' as const,
       title: 'Boyle’s Law & Gas Thermodynamics Verification (P · V = constant)',
       duration: '40 mins',
       objective: 'Compress gas in calibrated syringe with pressure sensor, measure P vs V, and plot P vs 1/V straight line through origin.',
+    },
+    {
+      id: 'math-1',
+      code: 'MATH-MECH-01',
+      category: 'maths' as const,
+      title: 'Lami’s Theorem & Resolution of Coplanar Forces (Statics)',
+      duration: '45 mins',
+      objective: 'Verify static equilibrium of 3 concurrent forces on vertical Gravesand’s board; validate P/sin(α) = Q/sin(β) = R/sin(γ) and Cartesian components.',
+    },
+    {
+      id: 'math-2',
+      code: 'MATH-MECH-02',
+      category: 'maths' as const,
+      title: 'Limiting Friction & Angle of Repose on Inclined Plane',
+      duration: '45 mins',
+      objective: 'Measure limiting static and kinetic friction coefficients (μ = tan λ); resolve normal reaction R = mg·cos(θ) and downhill force mg·sin(θ).',
+    },
+    {
+      id: 'math-3',
+      code: 'MATH-MECH-03',
+      category: 'maths' as const,
+      title: 'Projectile Motion: Trajectory Parabola, Max Height & Range',
+      duration: '50 mins',
+      objective: 'Launch projectiles at variable elevation angles (15°-75°) and speeds; compute time of flight T, max altitude H, and horizontal range R with g = 9.8 m/s².',
+    },
+    {
+      id: 'math-4',
+      code: 'MATH-CALC-01',
+      category: 'maths' as const,
+      title: 'Numerical Quadrature: Simpson’s 1/3 Rule vs Exact Calculus',
+      duration: '40 mins',
+      objective: 'Approximate definite integrals ∫f(x)dx using parabolic arcs over even strips; evaluate truncation error vs analytical Fundamental Theorem of Calculus.',
+    },
+    {
+      id: 'math-5',
+      code: 'MATH-MECH-04',
+      category: 'maths' as const,
+      title: 'Center of Gravity (C.G.) of Laminas & Composite Systems',
+      duration: '45 mins',
+      objective: 'Locate centroid of triangular, trapezoidal, and L-shaped plates using the plumb-line suspension method and moment summation (Σm_i·x_i / Σm_i).',
     },
   ];
 
@@ -391,53 +634,147 @@ export const ScienceLabsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Lab Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Syllabus Practical Navigator */}
-        <div className="lg:col-span-4 space-y-4">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="font-serif text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>{activeLab === 'bio' ? 'Biology Syllabus Practicals' : 'Physical Science Practicals'}</span>
-              </h2>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
-                8 Experiments
-              </span>
-            </div>
+      {/* 3-Tab View Mode Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+          <button
+            onClick={() => setLabViewMode('simulators')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shrink-0 ${
+              labViewMode === 'simulators'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <FlaskConical className="w-4 h-4" />
+            <span>Virtual Lab Simulators</span>
+          </button>
 
-            <div className="space-y-2 max-h-[620px] overflow-y-auto pr-1 sidebar-menu-scroll">
-              {(activeLab === 'bio' ? bioPracticals : physicalPracticals).map((exp, idx) => {
-                const isSelected = (activeLab === 'bio' ? selectedBioExp : selectedPhysExp) === idx;
-                return (
-                  <button
-                    key={exp.id}
-                    onClick={() => {
-                      if (activeLab === 'bio') setSelectedBioExp(idx);
-                      else setSelectedPhysExp(idx);
-                    }}
-                    className={`w-full text-left p-3 rounded-xl border transition-all text-xs ${
-                      isSelected
-                        ? activeLab === 'bio'
-                          ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 shadow-sm'
-                          : 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40 text-blue-950 dark:text-blue-100 shadow-sm'
-                        : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                        {exp.code}
-                      </span>
-                      <span className="text-[10px] text-slate-400">{exp.duration}</span>
-                    </div>
-                    <p className="font-bold text-[12px] leading-snug line-clamp-2">{exp.title}</p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{exp.objective}</p>
-                  </button>
-                );
-              })}
+          <button
+            onClick={() => setLabViewMode('repository')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shrink-0 ${
+              labViewMode === 'repository'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Practical Guides Repository ({PRACTICAL_GUIDES.length} Guides)</span>
+          </button>
+
+          <button
+            onClick={() => setLabViewMode('checklists')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shrink-0 ${
+              labViewMode === 'checklists'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4" />
+            <span>Interactive Syllabus Checklists</span>
+          </button>
+        </div>
+
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 px-2 hidden sm:block">
+          Authority: <strong className="text-slate-700 dark:text-slate-200">Zahira College Mawanella Science Project management</strong>
+        </div>
+      </div>
+
+      {labViewMode === 'simulators' && (
+        /* Main Lab Workspace */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left: Syllabus Practical Navigator */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+                <h2 className="font-serif text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>{activeLab === 'bio' ? 'Biology Syllabus Practicals' : 'Physical Science Practicals'}</span>
+                </h2>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
+                  {activeLab === 'bio' ? `${bioPracticals.length} Experiments` : `${physicalPracticals.length} Experiments`}
+                </span>
+              </div>
+
+              {activeLab === 'physical' && (
+                <div className="flex items-center gap-1.5 pb-2.5 border-b border-slate-100 dark:border-slate-800 mb-2 overflow-x-auto">
+                  {(['all', 'physics', 'maths', 'chemistry'] as const).map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setPhysicalCategoryFilter(cat)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all shrink-0 ${
+                        physicalCategoryFilter === cat
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat === 'all'
+                        ? `All (${physicalPracticals.length})`
+                        : cat === 'maths'
+                        ? 'Maths (5)'
+                        : cat === 'physics'
+                        ? 'Physics (7)'
+                        : 'Chem (1)'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-2 max-h-[620px] overflow-y-auto pr-1 sidebar-menu-scroll">
+                {(activeLab === 'bio'
+                  ? bioPracticals
+                  : physicalPracticals.filter(
+                      (p) => physicalCategoryFilter === 'all' || p.category === physicalCategoryFilter
+                    )
+                ).map((exp) => {
+                  const realIndex =
+                    activeLab === 'bio'
+                      ? bioPracticals.findIndex((b) => b.id === exp.id)
+                      : physicalPracticals.findIndex((p) => p.id === exp.id);
+                  const isSelected = (activeLab === 'bio' ? selectedBioExp : selectedPhysExp) === realIndex;
+                  return (
+                    <button
+                      key={exp.id}
+                      onClick={() => {
+                        if (activeLab === 'bio') setSelectedBioExp(realIndex);
+                        else setSelectedPhysExp(realIndex);
+                      }}
+                      className={`w-full text-left p-3 rounded-xl border transition-all text-xs ${
+                        isSelected
+                          ? activeLab === 'bio'
+                            ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 shadow-sm'
+                            : 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40 text-blue-950 dark:text-blue-100 shadow-sm'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                          {exp.code}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {(exp as any).category && (
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                (exp as any).category === 'maths'
+                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                                  : (exp as any).category === 'physics'
+                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                              }`}
+                            >
+                              {(exp as any).category}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400">{exp.duration}</span>
+                        </div>
+                      </div>
+                      <p className="font-bold text-[12px] leading-snug line-clamp-2">{exp.title}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{exp.objective}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
 
         {/* Right: Interactive Simulator & Laboratory Bench */}
         <div className="lg:col-span-8 space-y-6">
@@ -462,19 +799,35 @@ export const ScienceLabsPage: React.FC = () => {
                   </p>
                 </div>
 
-                <button
-                  onClick={() =>
-                    handleExportLabReportPDF(
-                      'bio',
-                      bioPracticals[selectedBioExp].title,
-                      bioPracticals[selectedBioExp].code
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm shrink-0"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export Lab Report (PDF)</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() =>
+                      handlePreviewLabReportPDF(
+                        'bio',
+                        bioPracticals[selectedBioExp].title,
+                        bioPracticals[selectedBioExp].code
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 font-bold text-xs transition-all shadow-2xs"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Preview (PDF)</span>
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      handleExportLabReportPDF(
+                        'bio',
+                        bioPracticals[selectedBioExp].title,
+                        bioPracticals[selectedBioExp].code
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export Lab Report (PDF)</span>
+                  </button>
+                </div>
               </div>
 
               {/* Experiment Simulator Core */}
@@ -1047,19 +1400,35 @@ export const ScienceLabsPage: React.FC = () => {
                   </p>
                 </div>
 
-                <button
-                  onClick={() =>
-                    handleExportLabReportPDF(
-                      'physical',
-                      physicalPracticals[selectedPhysExp].title,
-                      physicalPracticals[selectedPhysExp].code
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm shrink-0"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export Lab Report (PDF)</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() =>
+                      handlePreviewLabReportPDF(
+                        'physical',
+                        physicalPracticals[selectedPhysExp].title,
+                        physicalPracticals[selectedPhysExp].code
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800 font-bold text-xs transition-all shadow-2xs"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Preview (PDF)</span>
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      handleExportLabReportPDF(
+                        'physical',
+                        physicalPracticals[selectedPhysExp].title,
+                        physicalPracticals[selectedPhysExp].code
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export Lab Report (PDF)</span>
+                  </button>
+                </div>
               </div>
 
               {/* Experiment Simulator Core */}
@@ -1424,7 +1793,10 @@ export const ScienceLabsPage: React.FC = () => {
                   </div>
                 )}
 
-                {selectedPhysExp !== 0 && selectedPhysExp !== 1 && selectedPhysExp !== 3 && selectedPhysExp !== 6 && (
+                {selectedPhysExp >= 8 ? (
+                  /* Combined Mathematics Interactive Practical Simulators */
+                  <MathsPracticalSimulators selectedExpIndex={selectedPhysExp} />
+                ) : selectedPhysExp !== 0 && selectedPhysExp !== 1 && selectedPhysExp !== 3 && selectedPhysExp !== 6 ? (
                   /* Other physical practicals generic benchmark */
                   <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
                     <div className="flex items-center gap-3">
@@ -1459,12 +1831,247 @@ export const ScienceLabsPage: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )}
         </div>
       </div>
+      )}
+
+      {/* Mode 2: Practical Guides Repository */}
+      {labViewMode === 'repository' && (
+        <div className="space-y-6">
+          <PracticalGuidesRepository
+            onOpenChecklist={(guideId) => {
+              setActiveChecklistId(guideId);
+              setLabViewMode('checklists');
+            }}
+          />
+        </div>
+      )}
+
+      {/* Mode 3: Interactive Syllabus Checklists */}
+      {labViewMode === 'checklists' && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-xs font-bold mb-1">
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>Interactive Practical Syllabus Verification</span>
+                </div>
+                <h2 className="font-serif text-xl md:text-2xl font-bold text-slate-900 dark:text-white">
+                  G.C.E. A/L Practical Competency Checklists
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Step-by-step verified laboratory procedures aligned with the official Department of Examinations syllabus.
+                </p>
+              </div>
+
+              {/* Filter tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                {(['all', 'maths', 'physics', 'chemistry', 'bio'] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setChecklistFilter(f)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition-all shrink-0 ${
+                      checklistFilter === f
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                    }`}
+                  >
+                    {f === 'all'
+                      ? `All (${PRACTICAL_GUIDES.length})`
+                      : f === 'maths'
+                      ? 'Combined Maths (5)'
+                      : f === 'physics'
+                      ? 'Physics (5)'
+                      : f === 'chemistry'
+                      ? 'Chem (1)'
+                      : 'Bio (2)'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Search Filter */}
+            <div className="pt-4 pb-2">
+              <div className="relative max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={checklistSearchQuery}
+                  onChange={(e) => setChecklistSearchQuery(e.target.value)}
+                  placeholder="Search practicals by syllabus code, topic, or competency..."
+                  className="w-full pl-10 pr-4 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Checklist Cards Grid */}
+          <div className="space-y-5">
+            {PRACTICAL_GUIDES.filter((g) => {
+              const matchesFilter = checklistFilter === 'all' || g.discipline === checklistFilter;
+              const q = checklistSearchQuery.toLowerCase().trim();
+              const matchesSearch =
+                q === '' ||
+                g.title.toLowerCase().includes(q) ||
+                g.code.toLowerCase().includes(q) ||
+                g.subjectName.toLowerCase().includes(q) ||
+                g.syllabusUnit.toLowerCase().includes(q);
+              return matchesFilter && matchesSearch;
+            }).map((guide) => {
+              const totalSteps = guide.checklistSteps.length;
+              const completedSteps = guide.checklistSteps.filter(
+                (_, idx) => !!checkedSteps[`${guide.id}-step-${idx}`]
+              ).length;
+              const percent = Math.round((completedSteps / totalSteps) * 100);
+              const isAllDone = percent === 100;
+
+              return (
+                <div
+                  key={guide.id}
+                  className={`rounded-2xl border transition-all p-5 bg-white dark:bg-slate-900 ${
+                    isAllDone
+                      ? 'border-emerald-300 dark:border-emerald-900 shadow-xs'
+                      : 'border-slate-200 dark:border-slate-800 shadow-sm'
+                  }`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+                          {guide.code}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                            guide.discipline === 'maths'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                              : guide.discipline === 'physics'
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                              : guide.discipline === 'bio'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                          }`}
+                        >
+                          {guide.subjectName}
+                        </span>
+                        <span className="text-[11px] text-slate-400">• {guide.duration}</span>
+                        {isAllDone && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>100% Verified</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="font-serif text-base md:text-lg font-bold text-slate-900 dark:text-white">
+                        {guide.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {guide.syllabusUnit} — <em>{guide.aim}</em>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handlePreviewChecklistPDF(guide)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-bold transition-all border border-blue-200 dark:border-blue-800 shadow-2xs"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        <span>Preview (PDF)</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleExportChecklistPDF(guide)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all border border-slate-200 dark:border-slate-700 shadow-2xs"
+                      >
+                        <Download className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Export Checklist (PDF)</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setLabViewMode('simulators');
+                          if (guide.discipline === 'bio') {
+                            setActiveLab('bio');
+                            setSelectedBioExp(0);
+                          } else {
+                            setActiveLab('physical');
+                            const matchIndex = physicalPracticals.findIndex((p) => p.id === guide.id);
+                            if (matchIndex !== -1) setSelectedPhysExp(matchIndex);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Launch Simulator</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="py-3">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        Practical Execution Progress
+                      </span>
+                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                        {completedSteps} of {totalSteps} Steps ({percent}%)
+                      </span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          isAllDone ? 'bg-emerald-500' : 'bg-blue-600'
+                        }`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Checkbox Items */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2">
+                    {guide.checklistSteps.map((step, idx) => {
+                      const stepKey = `${guide.id}-step-${idx}`;
+                      const isDone = !!checkedSteps[stepKey];
+                      return (
+                        <label
+                          key={stepKey}
+                          className={`flex items-start gap-2.5 p-3 rounded-xl border transition-all cursor-pointer text-xs ${
+                            isDone
+                              ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/80 text-emerald-950 dark:text-emerald-100'
+                              : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isDone}
+                            onChange={() => toggleChecklistStep(stepKey)}
+                            className="mt-0.5 rounded-md text-emerald-600 focus:ring-emerald-500 h-4 w-4 shrink-0 accent-emerald-600 cursor-pointer"
+                          />
+                          <span className={`leading-relaxed ${isDone ? 'line-through opacity-85' : 'font-medium'}`}>
+                            {idx + 1}. {step}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* In-App Interactive PDF Preview Modal */}
+      <PDFPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        pdfData={previewPDFData}
+      />
     </div>
   );
 };

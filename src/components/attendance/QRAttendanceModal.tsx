@@ -37,7 +37,7 @@ interface QRAttendanceModalProps {
 export const QRAttendanceModal: React.FC<QRAttendanceModalProps> = ({
   isOpen,
   onClose,
-  classId = 'class-2k28-science-em',
+  classId = 'general',
   className = '2k28 Science EM',
   selectedDate = new Date().toISOString().split('T')[0],
   mode,

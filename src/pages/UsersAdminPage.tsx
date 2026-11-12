@@ -18,11 +18,11 @@ import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firesto
 import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { UserProfile, UserRole } from '../types';
-import { REAL_ADMIN_PROFILE, SEED_INITIAL_USERS } from '../services/dataService';
+import { REAL_ADMIN_PROFILE } from '../services/dataService';
 
 export const UsersAdminPage: React.FC = () => {
-  const { activeRole } = useAuth();
-  const [users, setUsers] = useState<UserProfile[]>([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+  const { activeRole, userProfile } = useAuth();
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,20 +46,12 @@ export const UsersAdminPage: React.FC = () => {
           const u = d.data() as UserProfile;
           list.push({ ...u, userId: u.userId || d.id });
         });
-        if (list.length > 0) {
-          // If admin profile isn't already present in list, ensure admin is included
-          if (!list.some((u) => u.email?.toLowerCase() === 'mnmjaasim@gmail.com')) {
-            list.unshift(REAL_ADMIN_PROFILE);
-          }
-          setUsers(list);
-        } else {
-          setUsers([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
-        }
+        setUsers(list);
         setLoading(false);
       },
       (error) => {
         console.warn('Real-time users error:', error);
-        setUsers([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+        setUsers([]);
         setLoading(false);
       }
     );
@@ -77,8 +69,8 @@ export const UsersAdminPage: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string, name: string) => {
-    if (userId === 'admin_jaasim' || userId === 'admin_jaasim_official') {
-      setFeedback('Cannot delete primary administrator account.');
+    if (userId === 'admin_directorate' || (userProfile && userId === userProfile.userId)) {
+      setFeedback('Cannot delete currently active Faculty Directorate account.');
       setTimeout(() => setFeedback(null), 3000);
       return;
     }
@@ -108,7 +100,7 @@ export const UsersAdminPage: React.FC = () => {
         role: newRole,
         avatarUrl: '',
         bio: `${newRole.toUpperCase()} • Zahira College 2k28 Science EM`,
-        assignedClassIds: ['class-2k28-science-em'],
+        assignedClassIds: [],
         createdAt: new Date().toISOString(),
       };
 
@@ -240,10 +232,10 @@ export const UsersAdminPage: React.FC = () => {
             <button
               onClick={async () => {
                 const toDelete = selectedUserIds.filter(
-                  (id) => id !== 'admin_jaasim' && id !== 'admin_jaasim_official'
+                  (id) => id !== 'admin_directorate' && id !== userProfile?.userId
                 );
                 if (toDelete.length === 0) {
-                  setFeedback('Cannot delete primary administrator account.');
+                  setFeedback('Cannot delete currently active Faculty Directorate account.');
                   setTimeout(() => setFeedback(null), 3000);
                   return;
                 }
@@ -382,7 +374,7 @@ export const UsersAdminPage: React.FC = () => {
                         <option value="parent">Set as Parent</option>
                         <option value="admin">Set as Admin</option>
                       </select>
-                      {user.userId !== 'admin_jaasim' && user.userId !== 'admin_jaasim_official' && (
+                      {user.userId !== 'admin_directorate' && user.userId !== userProfile?.userId && (
                         <button
                           type="button"
                           onClick={() => handleDeleteUser(user.userId, user.fullName)}

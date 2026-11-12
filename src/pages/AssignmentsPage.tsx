@@ -27,12 +27,15 @@ import { useAuth } from '../context/AuthContext';
 import { Assignment, Submission, SubmissionStatus } from '../types';
 import { SEED_ASSIGNMENTS, SEED_SUBMISSIONS } from '../services/dataService';
 import { broadcastSystemNotification } from '../services/notificationService';
+import { PDFPreviewModal, PDFPreviewData } from '../components/common/PDFPreviewModal';
 
 export const AssignmentsPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>(SEED_ASSIGNMENTS);
   const [submissions, setSubmissions] = useState<Submission[]>(SEED_SUBMISSIONS);
   const [loading, setLoading] = useState(true);
+  const [previewData, setPreviewData] = useState<PDFPreviewData | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -212,9 +215,9 @@ export const AssignmentsPage: React.FC = () => {
         title: newTitle.trim(),
         description: newDesc.trim(),
         instructions: newInstructions.trim(),
-        classId: 'class-2k28-science-em',
+        classId: 'general',
         subjectId: 'sub-phys',
-        teacherId: userProfile?.userId || 'admin_jaasim',
+        teacherId: userProfile?.userId || 'faculty',
         dueDate: `${newDueDate}T23:59:00.000Z`,
         maxMarks: newMaxMarks,
         rubric: newRubric,
@@ -385,238 +388,238 @@ export const AssignmentsPage: React.FC = () => {
     }
   };
 
+  // Generate all coursework assignments document
+  const generateAllAssignmentsDoc = (): jsPDF => {
+    const doc = new jsPDF();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text('OFFICIAL ACADEMIC COURSEWORK & ASSIGNMENTS DIRECTORY', 20, 28);
+    doc.text('Mawanella, Sri Lanka • G.C.E. Advanced Level Academic Oversight', 20, 33);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 37, 190, 37);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Cohort: Zahira College 2k28 Science EM', 20, 46);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 52);
+    doc.text(`Total Coursework Items: ${assignments.length}`, 120, 46);
+    doc.text('Project Oversight: Zahira College Mawanella Science Project management', 105, 52);
+
+    let y = 62;
+    assignments.forEach((assign, index) => {
+      if (y > 230) {
+        doc.addPage();
+        y = 25;
+      }
+
+      const assignSubs = submissions.filter((s) => s.assignmentId === assign.id);
+      const mySub = assignSubs.find((s) => s.studentId === userProfile?.userId);
+
+      doc.setFillColor(239, 246, 255); // soft blue
+      doc.roundedRect(20, y, 170, 7.5, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 64, 175); // blue-800
+      doc.text(`${index + 1}. ${assign.title}`, 24, y + 5.2);
+
+      y += 13;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Due Date: ${assign.dueDate}`, 24, y);
+      doc.text(`Max Marks: ${assign.maxMarks} Pts`, 85, y);
+      doc.text(`Submissions Logged: ${assignSubs.length}`, 135, y);
+
+      y += 6;
+      doc.setTextColor(100, 116, 139);
+      const descLines = doc.splitTextToSize(`Description: ${assign.description}`, 162);
+      doc.text(descLines, 24, y);
+      y += descLines.length * 4.5;
+
+      if (assign.instructions) {
+        y += 2;
+        doc.setTextColor(51, 65, 85);
+        const instLines = doc.splitTextToSize(`Instructions: ${assign.instructions}`, 162);
+        doc.text(instLines, 24, y);
+        y += instLines.length * 4.5;
+      }
+
+      if (assign.rubric) {
+        y += 2;
+        doc.setTextColor(180, 83, 9);
+        const rubLines = doc.splitTextToSize(`Rubric: ${assign.rubric}`, 162);
+        doc.text(rubLines, 24, y);
+        y += rubLines.length * 4.5;
+      }
+
+      if (mySub) {
+        y += 2;
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(22, 101, 52);
+        doc.text(`My Submission: ${mySub.status.toUpperCase()} • Marks: ${mySub.marksObtained ?? 'Pending'}/${assign.maxMarks}`, 24, y);
+        y += 5;
+        if (mySub.feedback) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(71, 85, 105);
+          doc.text(`Faculty Remarks: ${mySub.feedback}`, 24, y);
+          y += 5;
+        }
+      }
+
+      y += 5;
+      doc.setDrawColor(226, 232, 240);
+      doc.line(20, y, 190, y);
+      y += 8;
+    });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Zahira College Mawanella • Official Academic Record • Confidential', 20, 285);
+
+    return doc;
+  };
+
   // Export all coursework assignments to PDF
   const handleExportAllPDF = () => {
     try {
-      const doc = new jsPDF();
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text('OFFICIAL ACADEMIC COURSEWORK & ASSIGNMENTS DIRECTORY', 20, 28);
-      doc.text('Mawanella, Sri Lanka • G.C.E. Advanced Level Academic Oversight', 20, 33);
-
-      doc.setDrawColor(203, 213, 225);
-      doc.line(20, 37, 190, 37);
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Cohort: Zahira College 2k28 Science EM', 20, 46);
-      doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 52);
-      doc.text(`Total Coursework Items: ${assignments.length}`, 120, 46);
-      doc.text('Project Oversight: Zahira College Mawanella Science Project management', 105, 52);
-
-      let y = 62;
-      assignments.forEach((assign, index) => {
-        if (y > 230) {
-          doc.addPage();
-          y = 25;
-        }
-
-        const assignSubs = submissions.filter((s) => s.assignmentId === assign.id);
-        const mySub = assignSubs.find((s) => s.studentId === userProfile?.userId);
-
-        doc.setFillColor(239, 246, 255); // soft blue
-        doc.roundedRect(20, y, 170, 7.5, 1, 1, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(30, 64, 175); // blue-800
-        doc.text(`${index + 1}. ${assign.title}`, 24, y + 5.2);
-
-        y += 13;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(71, 85, 105);
-        doc.text(`Due Date: ${assign.dueDate}`, 24, y);
-        doc.text(`Max Marks: ${assign.maxMarks} Pts`, 85, y);
-        doc.text(`Submissions Logged: ${assignSubs.length}`, 135, y);
-
-        y += 6;
-        doc.setTextColor(100, 116, 139);
-        const descLines = doc.splitTextToSize(`Description: ${assign.description}`, 162);
-        doc.text(descLines, 24, y);
-        y += descLines.length * 4.5;
-
-        if (assign.instructions) {
-          y += 2;
-          doc.setTextColor(51, 65, 85);
-          const instLines = doc.splitTextToSize(`Instructions: ${assign.instructions}`, 162);
-          doc.text(instLines, 24, y);
-          y += instLines.length * 4.5;
-        }
-
-        if (assign.rubric) {
-          y += 2;
-          doc.setTextColor(180, 83, 9);
-          const rubLines = doc.splitTextToSize(`Rubric: ${assign.rubric}`, 162);
-          doc.text(rubLines, 24, y);
-          y += rubLines.length * 4.5;
-        }
-
-        if (mySub) {
-          y += 2;
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(22, 101, 52);
-          doc.text(`My Submission: ${mySub.status.toUpperCase()} • Marks: ${mySub.marksObtained ?? 'Pending'}/${assign.maxMarks}`, 24, y);
-          y += 5;
-          if (mySub.feedback) {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(8.5);
-            doc.setTextColor(71, 85, 105);
-            doc.text(`Faculty Remarks: ${mySub.feedback}`, 24, y);
-            y += 5;
-          }
-        }
-
-        y += 5;
-        doc.setDrawColor(226, 232, 240);
-        doc.line(20, y, 190, y);
-        y += 8;
-      });
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Zahira College Mawanella • Official Academic Record • Confidential', 20, 285);
-
+      const doc = generateAllAssignmentsDoc();
       doc.save(`Zahira_College_Mawanella_Assignments_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (e) {
       console.error('Assignments PDF error:', e);
     }
   };
 
-  // Export single assignment worksheet or task brief to PDF
-  const handleExportSingleAssignmentPDF = (assign: Assignment) => {
+  // Preview all coursework assignments
+  const handlePreviewAllPDF = () => {
     try {
-      const doc = new jsPDF();
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
+      const doc = generateAllAssignmentsDoc();
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewData({
+        title: 'Official Academic Coursework Directory',
+        subtitle: 'Zahira College 2k28 Science EM • Assignments & Task Sheets',
+        category: 'Coursework Directory',
+        filename: `Zahira_Assignments_Directory_${new Date().toISOString().split('T')[0]}.pdf`,
+        blobUrl,
+        blob,
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('Assignments preview error:', e);
+    }
+  };
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text('OFFICIAL COURSEWORK TASK SHEET & SUBMISSION BRIEF', 20, 28);
-      doc.text('Mawanella, Sri Lanka • G.C.E. Advanced Level Science Stream', 20, 33);
+  // Generate single assignment worksheet or task brief
+  const generateSingleAssignmentDoc = (assign: Assignment): jsPDF => {
+    const doc = new jsPDF();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 22);
 
-      doc.setDrawColor(203, 213, 225);
-      doc.line(20, 37, 190, 37);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text('OFFICIAL COURSEWORK TASK SHEET & SUBMISSION BRIEF', 20, 28);
+    doc.text('Mawanella, Sri Lanka • G.C.E. Advanced Level Science Stream', 20, 33);
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      doc.setTextColor(30, 64, 175);
-      doc.text(assign.title, 20, 48);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 37, 190, 37);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`Due Date: ${assign.dueDate}`, 20, 56);
-      doc.text(`Maximum Marks: ${assign.maxMarks} Points`, 85, 56);
-      doc.text('Target: Zahira College 2k28 Science EM', 135, 56);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(30, 64, 175);
+    doc.text(assign.title, 20, 48);
 
-      let y = 68;
-      doc.setFillColor(241, 245, 249);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Due Date: ${assign.dueDate}`, 20, 56);
+    doc.text(`Maximum Marks: ${assign.maxMarks} Points`, 85, 56);
+    doc.text('Target: Zahira College 2k28 Science EM', 135, 56);
+
+    let y = 68;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(20, y, 170, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(51, 65, 85);
+    doc.text('COURSEWORK INSTRUCTIONS & GUIDELINES', 24, y + 5);
+
+    y += 12;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    const instLines = doc.splitTextToSize(assign.instructions || assign.description, 165);
+    doc.text(instLines, 24, y);
+    y += instLines.length * 5 + 6;
+
+    if (assign.rubric) {
+      doc.setFillColor(254, 243, 199);
       doc.rect(20, y, 170, 7, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
-      doc.setTextColor(51, 65, 85);
-      doc.text('COURSEWORK INSTRUCTIONS & GUIDELINES', 24, y + 5);
+      doc.setTextColor(146, 64, 14);
+      doc.text('EVALUATION RUBRIC & CRITERIA', 24, y + 5);
 
       y += 12;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.setTextColor(15, 23, 42);
-      const instLines = doc.splitTextToSize(assign.instructions || assign.description, 165);
-      doc.text(instLines, 24, y);
-      y += instLines.length * 5 + 6;
+      doc.setTextColor(71, 85, 105);
+      const rubLines = doc.splitTextToSize(assign.rubric, 165);
+      doc.text(rubLines, 24, y);
+      y += rubLines.length * 5 + 8;
+    }
 
-      if (assign.rubric) {
-        doc.setFillColor(254, 243, 199);
-        doc.rect(20, y, 170, 7, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(146, 64, 14);
-        doc.text('EVALUATION RUBRIC & CRITERIA', 24, y + 5);
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, y, 190, y);
+    y += 8;
 
-        y += 12;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(71, 85, 105);
-        const rubLines = doc.splitTextToSize(assign.rubric, 165);
-        doc.text(rubLines, 24, y);
-        y += rubLines.length * 5 + 8;
-      }
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Certified by Academic Administration: Zahira College Mawanella Science Project management', 20, y);
 
-      // Check student submission
-      const assignSubs = submissions.filter((s) => s.assignmentId === assign.id);
-      const mySub = assignSubs.find((s) => s.studentId === userProfile?.userId);
+    return doc;
+  };
 
-      if (mySub) {
-        doc.setFillColor(236, 253, 245);
-        doc.rect(20, y, 170, 7, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(6, 95, 70);
-        doc.text(`STUDENT SUBMISSION RECORD (${mySub.status.toUpperCase()})`, 24, y + 5);
-
-        y += 12;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(15, 23, 42);
-        doc.text(`Student: ${mySub.studentName}`, 24, y);
-        doc.text(`Submitted At: ${new Date(mySub.submittedAt).toLocaleString()}`, 110, y);
-
-        y += 6;
-        if (mySub.marksObtained !== undefined) {
-          doc.setTextColor(22, 101, 52);
-          doc.text(`Final Certified Score: ${mySub.marksObtained} / ${assign.maxMarks}`, 24, y);
-          y += 6;
-        }
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(71, 85, 105);
-        const subContentLines = doc.splitTextToSize(`Work / Solution: ${mySub.content}`, 165);
-        doc.text(subContentLines, 24, y);
-        y += subContentLines.length * 4.5 + 4;
-
-        if (mySub.feedback) {
-          doc.setFont('helvetica', 'italic');
-          doc.setTextColor(30, 58, 138);
-          const feedbackLines = doc.splitTextToSize(`Teacher Feedback: ${mySub.feedback}`, 165);
-          doc.text(feedbackLines, 24, y);
-          y += feedbackLines.length * 4.5;
-        }
-      } else {
-        doc.setFillColor(248, 250, 252);
-        doc.rect(20, y, 170, 7, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(100, 116, 139);
-        doc.text('STUDENT WORKING & SOLUTION SPACE (OFFLINE WORKSHEET)', 24, y + 5);
-
-        y += 14;
-        doc.setDrawColor(226, 232, 240);
-        for (let i = 0; i < 5; i++) {
-          doc.line(24, y, 186, y);
-          y += 9;
-        }
-      }
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Zahira College Mawanella Science Project management • Official Academic Document', 20, 285);
-
-      doc.save(`Zahira_College_Mawanella_Assignment_${assign.id}.pdf`);
+  // Export single assignment worksheet or task brief to PDF
+  const handleExportSingleAssignmentPDF = (assign: Assignment) => {
+    try {
+      const doc = generateSingleAssignmentDoc(assign);
+      doc.save(`Zahira_Coursework_${assign.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`);
     } catch (e) {
-      console.error('Single assignment PDF error:', e);
+      console.error('Assignment single PDF error:', e);
+    }
+  };
+
+  // Preview single assignment worksheet
+  const handlePreviewSingleAssignmentPDF = (assign: Assignment) => {
+    try {
+      const doc = generateSingleAssignmentDoc(assign);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewData({
+        title: assign.title,
+        subtitle: `Due: ${assign.dueDate} • Max Marks: ${assign.maxMarks} Points`,
+        category: 'Assignment Task Sheet',
+        filename: `Zahira_Coursework_${assign.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
+        blobUrl,
+        blob,
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('Single assignment preview error:', e);
     }
   };
 
@@ -638,7 +641,16 @@ export const AssignmentsPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handlePreviewAllPDF}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 px-3.5 py-2.5 text-xs font-bold text-blue-900 transition-colors shadow-2xs shrink-0"
+            title="Preview Coursework Directory PDF in Browser"
+          >
+            <Eye className="w-3.5 h-3.5 text-blue-700" />
+            <span>Preview Directory</span>
+          </button>
+
           <button
             onClick={handleExportAllPDF}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-700 transition-colors shadow-2xs shrink-0"
@@ -723,6 +735,15 @@ export const AssignmentsPage: React.FC = () => {
                         <span>Question Paper ({assign.fileSize || 'PDF'})</span>
                       </a>
                     )}
+
+                    <button
+                      onClick={() => handlePreviewSingleAssignmentPDF(assign)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/60 hover:bg-blue-100 px-3 py-1.5 text-[11px] font-bold text-blue-900 transition-colors shadow-2xs"
+                      title="Preview PDF Coursework Brief in Browser"
+                    >
+                      <Eye className="w-3 h-3 text-blue-700" />
+                      <span>Preview</span>
+                    </button>
 
                     <button
                       onClick={() => handleExportSingleAssignmentPDF(assign)}
@@ -1348,6 +1369,18 @@ export const AssignmentsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* In-App Live PDF Preview Modal */}
+      <PDFPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          if (previewData?.blobUrl) {
+            URL.revokeObjectURL(previewData.blobUrl);
+          }
+        }}
+        pdfData={previewData}
+      />
     </div>
   );
 };

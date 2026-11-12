@@ -161,9 +161,9 @@ export const MaterialsPage: React.FC = () => {
         id,
         title: newTitle.trim(),
         description: newDesc.trim() || 'Curriculum resource for Zahira College 2k28 Science EM.',
-        classId: 'class-2k28-science-em',
+        classId: 'general',
         subjectId: newSubjectId,
-        teacherId: userProfile?.userId || 'admin_jaasim',
+        teacherId: userProfile?.userId || 'faculty',
         teacherName: userProfile?.fullName || 'Faculty Lead',
         fileType: newType,
         fileUrl: finalUrl,
@@ -383,7 +383,7 @@ export const MaterialsPage: React.FC = () => {
                 <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
                   <div>
                     <p className="text-[11px] font-bold text-blue-900">{subj?.name || 'Science Stream'}</p>
-                    <p className="text-[10px] text-slate-400">Faculty: {mat.teacherName || 'M. N. M. Jaasim'}</p>
+                    <p className="text-[10px] text-slate-400">Faculty: {mat.teacherName || 'Science Faculty Lead'}</p>
                   </div>
                   <a
                     href={mat.fileUrl}

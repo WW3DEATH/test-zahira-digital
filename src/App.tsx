@@ -4,6 +4,7 @@ import { SiteConfigProvider, useSiteConfig } from './context/SiteConfigContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
+import { ZNCDashboard } from './components/dashboards/ZNCDashboard';
 import { AdminDashboard } from './components/dashboards/AdminDashboard';
 import { TeacherDashboard } from './components/dashboards/TeacherDashboard';
 import { StudentDashboard } from './components/dashboards/StudentDashboard';
@@ -23,6 +24,7 @@ import { DiscussionsPage } from './pages/DiscussionsPage';
 import { TutorPage } from './pages/TutorPage';
 import { TeacherAssistantPage } from './pages/TeacherAssistantPage';
 import { UsersAdminPage } from './pages/UsersAdminPage';
+import { TeacherPanelPage } from './pages/TeacherPanelPage';
 import { ScienceLabsPage } from './pages/ScienceLabsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -34,7 +36,7 @@ const MainApp: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
   const { siteConfig } = useSiteConfig();
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [tutorInitialTopic, setTutorInitialTopic] = useState<string>('');
 
@@ -51,43 +53,32 @@ const MainApp: React.FC = () => {
   };
 
   const renderCurrentPage = () => {
-    // If not authenticated, restrict protected dashboards and admin panels to guest landing
-    if (!userProfile) {
-      if (
-        currentPage === 'dashboard' ||
-        currentPage === 'admin_panel' ||
-        currentPage === 'users_admin' ||
-        currentPage === 'settings' ||
-        currentPage === 'profile'
-      ) {
-        return (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
-            onNavigate={setCurrentPage}
-          />
-        );
-      }
-    }
-
     switch (currentPage) {
       case 'dashboard':
-        if (activeRole === 'admin') return <AdminDashboard onNavigate={setCurrentPage} />;
-        if (activeRole === 'teacher') return <TeacherDashboard onNavigate={setCurrentPage} />;
-        if (activeRole === 'student') return <StudentDashboard onNavigate={setCurrentPage} onLaunchTutorTopic={handleLaunchTutorTopic} />;
         return (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
+          <ZNCDashboard
             onNavigate={setCurrentPage}
+            onLaunchTutorTopic={handleLaunchTutorTopic}
           />
         );
 
       case 'admin_panel':
-        return userProfile && activeRole === 'admin' ? (
+        return activeRole === 'admin' ? (
           <AdminMasterControlPage />
         ) : (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
+          <ZNCDashboard
             onNavigate={setCurrentPage}
+            onLaunchTutorTopic={handleLaunchTutorTopic}
+          />
+        );
+
+      case 'teacher_panel':
+        return userProfile && (activeRole === 'teacher' || activeRole === 'admin') ? (
+          <TeacherPanelPage onNavigate={setCurrentPage} />
+        ) : (
+          <ZNCDashboard
+            onNavigate={setCurrentPage}
+            onLaunchTutorTopic={handleLaunchTutorTopic}
           />
         );
 
@@ -108,7 +99,7 @@ const MainApp: React.FC = () => {
       case 'attendance':
         return <AttendancePage />;
       case 'calendar':
-        return <CalendarPage />;
+        return <CalendarPage initialTab="attendance" />;
       case 'announcements':
         return <AnnouncementsPage />;
       case 'messages':
@@ -123,19 +114,14 @@ const MainApp: React.FC = () => {
         if (activeRole === 'teacher') return <TeacherDashboard onNavigate={setCurrentPage} />;
         if (activeRole === 'student') return <StudentDashboard onNavigate={setCurrentPage} onLaunchTutorTopic={handleLaunchTutorTopic} />;
         if (activeRole === 'admin') return <AdminDashboard onNavigate={setCurrentPage} />;
-        return (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
-            onNavigate={setCurrentPage}
-          />
-        );
+        return <ZNCDashboard onNavigate={setCurrentPage} onLaunchTutorTopic={handleLaunchTutorTopic} />;
       case 'users_admin':
         return userProfile && activeRole === 'admin' ? (
           <UsersAdminPage />
         ) : (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
+          <ZNCDashboard
             onNavigate={setCurrentPage}
+            onLaunchTutorTopic={handleLaunchTutorTopic}
           />
         );
       case 'profile':
@@ -144,64 +130,68 @@ const MainApp: React.FC = () => {
         return userProfile && activeRole === 'admin' ? (
           <SettingsPage />
         ) : (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
+          <ZNCDashboard
             onNavigate={setCurrentPage}
+            onLaunchTutorTopic={handleLaunchTutorTopic}
           />
         );
       default:
-        return userProfile ? (
-          <AdminDashboard onNavigate={setCurrentPage} />
-        ) : (
-          <GuestPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
+        return (
+          <ZNCDashboard
             onNavigate={setCurrentPage}
+            onLaunchTutorTopic={handleLaunchTutorTopic}
           />
         );
     }
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200">
-      {/* Sidebar with Dark Mode & Custom Scrollbar */}
-      <Sidebar
-        currentPage={currentPage}
-        onNavigate={setCurrentPage}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#f4f7fa] dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200">
+      {/* 1. TOP HEADER (Spans Across Top) */}
+      <Header
+        onOpenProfile={() => setCurrentPage('profile')}
         onOpenAuthModal={() => setAuthModalOpen(true)}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onNavigate={setCurrentPage}
+        onToggleMobileMenu={() => setMobileNavOpen(!mobileNavOpen)}
       />
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
-        {/* Top Marquee Announcement Bar */}
-        {siteConfig.showMarquee && siteConfig.marqueeNotice && (
-          <div className="bg-blue-900 dark:bg-blue-950 text-white px-4 py-1.5 text-xs font-semibold flex items-center justify-between border-b border-blue-950 dark:border-slate-800 shadow-xs z-40">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <span className="inline-flex items-center gap-1 rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shrink-0">
-                <Megaphone className="w-3 h-3" />
-                <span>Notice</span>
-              </span>
-              <span className="truncate text-blue-100 font-medium">
-                {siteConfig.marqueeNotice}
-              </span>
-            </div>
-            <div className="hidden md:flex items-center gap-3 text-[11px] text-blue-200 shrink-0">
-              <span className="font-bold text-white">{siteConfig.schoolName}</span>
-              <span>•</span>
-              <span className="text-red-400 font-semibold">{siteConfig.cohortName}</span>
+      {/* 2. BODY CONTAINER: FLOATING CAPSULE SIDEBAR + MAIN CONTENT */}
+      <div className="flex flex-1 overflow-hidden w-full">
+        {/* Desktop Floating Vertical Capsule Sidebar (Detached with smooth margins) */}
+        <div className="hidden md:flex shrink-0 items-start pl-3 sm:pl-5 py-4">
+          <Sidebar
+            currentPage={currentPage}
+            onNavigate={setCurrentPage}
+            onOpenAuthModal={() => setAuthModalOpen(true)}
+          />
+        </div>
+
+        {/* Mobile Off-Canvas Drawer */}
+        {mobileNavOpen && (
+          <div className="fixed inset-0 z-50 flex md:hidden">
+            <div
+              className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs transition-opacity animate-in fade-in"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <div className="relative flex flex-col p-4 bg-transparent z-10 animate-in slide-in-from-left duration-200">
+              <Sidebar
+                currentPage={currentPage}
+                onNavigate={(page) => {
+                  setCurrentPage(page);
+                  setMobileNavOpen(false);
+                }}
+                onOpenAuthModal={() => {
+                  setAuthModalOpen(true);
+                  setMobileNavOpen(false);
+                }}
+              />
             </div>
           </div>
         )}
 
-        <Header
-          onOpenProfile={() => setCurrentPage('profile')}
-          onOpenAuthModal={() => setAuthModalOpen(true)}
-          onNavigate={setCurrentPage}
-        />
-
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
-          <div className="mx-auto max-w-7xl pb-12">
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 w-full min-w-0">
+          <div className="mx-auto max-w-7xl pb-12 w-full">
             {renderCurrentPage()}
           </div>
         </main>
@@ -213,7 +203,7 @@ const MainApp: React.FC = () => {
         onClose={() => setAuthModalOpen(false)}
       />
 
-      {/* Floating AI Chat Widget (Bottom Right) */}
+      {/* Floating AI Chat Widget */}
       <StudentAIChatWidget onNavigate={setCurrentPage} />
     </div>
   );

@@ -29,7 +29,7 @@ export const AnnouncementsPage: React.FC = () => {
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newAudience, setNewAudience] = useState<AnnouncementAudience>('all');
-  const [newClassId, setNewClassId] = useState('class-2k28-science-em');
+  const [newClassId, setNewClassId] = useState('all');
   const [newIsPinned, setNewIsPinned] = useState(false);
 
   useEffect(() => {
@@ -57,8 +57,8 @@ export const AnnouncementsPage: React.FC = () => {
         id,
         title: newTitle.trim(),
         content: newContent.trim(),
-        authorId: userProfile?.userId || 'admin_jaasim',
-        authorName: userProfile?.fullName || 'M. N. M. Jaasim',
+        authorId: userProfile?.userId || 'faculty_lead',
+        authorName: userProfile?.fullName || 'Faculty Directorate',
         authorRole: activeRole,
         audience: newAudience,
         classId: newAudience === 'class' ? newClassId : undefined,

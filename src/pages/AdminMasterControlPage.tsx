@@ -47,6 +47,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db, sanitizeFirestoreDoc } from '../firebase';
+import { useAuth } from '../context/AuthContext';
 import { useSiteConfig } from '../context/SiteConfigContext';
 import {
   SchoolSetting,
@@ -60,7 +61,7 @@ import {
   Conversation,
   DirectMessage,
 } from '../types';
-import { REAL_ADMIN_PROFILE, SEED_INITIAL_USERS } from '../services/dataService';
+import { REAL_ADMIN_PROFILE } from '../services/dataService';
 
 type AdminTab =
   | 'branding'
@@ -81,6 +82,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   initialTab = 'branding',
   onNavigate,
 }) => {
+  const { userProfile } = useAuth();
   const { siteConfig, updateSiteConfig } = useSiteConfig();
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
@@ -143,141 +145,9 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
     setBrandingForm(siteConfig);
   }, [siteConfig]);
 
-  // Helper to seed realistic academic demo conversations if none exist in Firestore
+  // Audit conversations handler - empty by default unless real messages exist
   const seedAuditConversations = async (): Promise<Conversation[]> => {
-    const defaultConvs: { conv: Conversation; messages: DirectMessage[] }[] = [
-      {
-        conv: {
-          id: 'conv-audit-bio-1',
-          participantIds: ['student_aadhil', 'teacher_kareem'],
-          participantNames: {
-            student_aadhil: 'M. R. Mohamed Aadhil (Student - 2K28-SCI-001)',
-            teacher_kareem: 'Dr. A. Kareem (Faculty - Biology Department)',
-          },
-          lastMessage: 'Sir, could you please verify the DNA extraction lab report hypothesis before submission?',
-          lastMessageAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-          updatedAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-        },
-        messages: [
-          {
-            id: 'msg-audit-1',
-            conversationId: 'conv-audit-bio-1',
-            senderId: 'student_aadhil',
-            senderName: 'M. R. Mohamed Aadhil (Student)',
-            text: 'Assalamu Alaikum Dr. Kareem, for the Biology practical report on DNA Extraction from Onion Cells, should we include standard deviations in Table 2?',
-            createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-          },
-          {
-            id: 'msg-audit-2',
-            conversationId: 'conv-audit-bio-1',
-            senderId: 'teacher_kareem',
-            senderName: 'Dr. A. Kareem (Teacher)',
-            text: 'Wa Alaikum Assalam Aadhil. Yes, standard deviations and error bars are required as per Cambridge/GCE Advanced Level bio-science specifications.',
-            createdAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
-          },
-          {
-            id: 'msg-audit-3',
-            conversationId: 'conv-audit-bio-1',
-            senderId: 'student_aadhil',
-            senderName: 'M. R. Mohamed Aadhil (Student)',
-            text: 'Sir, could you please verify the DNA extraction lab report hypothesis before submission?',
-            createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-          },
-        ],
-      },
-      {
-        conv: {
-          id: 'conv-audit-math-2',
-          participantIds: ['student_zahra', 'teacher_fazil'],
-          participantNames: {
-            student_zahra: 'Fathima Zahra (Student - 2K28-SCI-002)',
-            teacher_fazil: 'Eng. M. Fazil (Faculty - Combined Mathematics)',
-          },
-          lastMessage: 'Understood sir, I will complete the trigonometric differentiation problem set by Friday.',
-          lastMessageAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-          updatedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-        },
-        messages: [
-          {
-            id: 'msg-audit-4',
-            conversationId: 'conv-audit-math-2',
-            senderId: 'student_zahra',
-            senderName: 'Fathima Zahra (Student)',
-            text: 'Good afternoon Sir Fazil, should we solve Question 8 in Calculus using integration by parts or trigonometric substitution?',
-            createdAt: new Date(Date.now() - 1000 * 60 * 135).toISOString(),
-          },
-          {
-            id: 'msg-audit-5',
-            conversationId: 'conv-audit-math-2',
-            senderId: 'teacher_fazil',
-            senderName: 'Eng. M. Fazil (Teacher)',
-            text: 'Substitute x = a*tan(theta) first; that transforms the radical into a standard secant integral.',
-            createdAt: new Date(Date.now() - 1000 * 60 * 128).toISOString(),
-          },
-          {
-            id: 'msg-audit-6',
-            conversationId: 'conv-audit-math-2',
-            senderId: 'student_zahra',
-            senderName: 'Fathima Zahra (Student)',
-            text: 'Understood sir, I will complete the trigonometric differentiation problem set by Friday.',
-            createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-          },
-        ],
-      },
-      {
-        conv: {
-          id: 'conv-audit-parent-3',
-          participantIds: ['parent_rizwan', 'admin_jaasim'],
-          participantNames: {
-            parent_rizwan: 'Rizwan Hamza (Parent of Hamza Rizwan)',
-            admin_jaasim: 'M. N. M. Jaasim (Admin)',
-          },
-          lastMessage: 'Thank you for the update on the 2k28 Science EM term schedule and mock exam dates.',
-          lastMessageAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
-          updatedAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
-        },
-        messages: [
-          {
-            id: 'msg-audit-7',
-            conversationId: 'conv-audit-parent-3',
-            senderId: 'parent_rizwan',
-            senderName: 'Rizwan Hamza (Parent)',
-            text: 'Respected Administrator Jaasim, Hamza mentioned the 2k28 Science batch has supplementary physics revision sessions on Saturdays. Is attendance mandatory?',
-            createdAt: new Date(Date.now() - 1000 * 60 * 260).toISOString(),
-          },
-          {
-            id: 'msg-audit-8',
-            conversationId: 'conv-audit-parent-3',
-            senderId: 'admin_jaasim',
-            senderName: 'M. N. M. Jaasim (Admin)',
-            text: 'Dear Mr. Rizwan, Saturday sessions cover advanced mechanics problem-solving. While strongly recommended for high A* targets, attendance records are tracked in the portal.',
-            createdAt: new Date(Date.now() - 1000 * 60 * 248).toISOString(),
-          },
-          {
-            id: 'msg-audit-9',
-            conversationId: 'conv-audit-parent-3',
-            senderId: 'parent_rizwan',
-            senderName: 'Rizwan Hamza (Parent)',
-            text: 'Thank you for the update on the 2k28 Science EM term schedule and mock exam dates.',
-            createdAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
-          },
-        ],
-      },
-    ];
-
-    const list: Conversation[] = [];
-    try {
-      for (const item of defaultConvs) {
-        await setDoc(doc(db, 'conversations', item.conv.id), sanitizeFirestoreDoc(item.conv));
-        for (const m of item.messages) {
-          await setDoc(doc(db, 'messages', m.id), sanitizeFirestoreDoc(m));
-        }
-        list.push(item.conv);
-      }
-    } catch (e) {
-      console.warn('Seeding audit conversations note:', e);
-    }
-    return list;
+    return [];
   };
 
   // Real-time synchronization for all entities
@@ -303,7 +173,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
         }
         setUsers(list);
       } else {
-        setUsers([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+        setUsers([REAL_ADMIN_PROFILE]);
       }
     });
 
@@ -325,7 +195,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       setMaterials(list);
     });
 
-    const unsubConversations = onSnapshot(collection(db, 'conversations'), async (snap) => {
+    const unsubConversations = onSnapshot(collection(db, 'conversations'), (snap) => {
       const list: Conversation[] = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Conversation));
       if (list.length > 0) {
@@ -337,9 +207,8 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
         setConversations(sorted);
         setSelectedConvId((prev) => (prev && sorted.some((c) => c.id === prev) ? prev : sorted[0].id));
       } else {
-        const seeded = await seedAuditConversations();
-        setConversations(seeded);
-        if (seeded.length > 0) setSelectedConvId(seeded[0].id);
+        setConversations([]);
+        setSelectedConvId(null);
       }
     });
 
@@ -385,9 +254,9 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
     const newMsg: DirectMessage = {
       id: msgId,
       conversationId: selectedConvId,
-      senderId: 'admin_jaasim',
-      senderName: 'M. N. M. Jaasim (Admin Oversight)',
-      text: `[OFFICIAL ADMIN DIRECTIVE]: ${text}`,
+      senderId: userProfile?.userId || 'faculty_directorate',
+      senderName: 'Faculty Directorate',
+      text: `[OFFICIAL FACULTY DIRECTIVE]: ${text}`,
       createdAt: new Date().toISOString(),
     };
 
@@ -396,15 +265,15 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       await setDoc(
         doc(db, 'conversations', selectedConvId),
         {
-          lastMessage: `[Admin Directive]: ${text}`,
+          lastMessage: `[Faculty Directive]: ${text}`,
           lastMessageAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
       );
-      triggerNotice('Official administrative directive dispatched to conversation.');
+      triggerNotice('Official faculty directive dispatched to conversation.');
     } catch (err: any) {
-      alert('Error sending admin intervention: ' + err.message);
+      triggerNotice('Error sending faculty directive: ' + err.message);
     }
   };
 
@@ -470,8 +339,8 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       code: editingSubject.code,
       description: editingSubject.description || '',
       color: editingSubject.color || '#1e3a8a',
-      teacherIds: editingSubject.teacherIds || ['admin_jaasim'],
-      classIds: editingSubject.classIds || ['class-2k28-science-em'],
+      teacherIds: editingSubject.teacherIds || [],
+      classIds: editingSubject.classIds || [],
       createdAt: editingSubject.createdAt || new Date().toISOString(),
     };
     await setDoc(doc(db, 'subjects', id), payload, { merge: true });
@@ -534,7 +403,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   };
 
   const handleDeleteUser = async (userId: string, name: string) => {
-    if (userId === 'admin_jaasim' || userId === 'admin_jaasim_official') {
+    if (userId === REAL_ADMIN_PROFILE.userId || (userProfile && userId === userProfile.userId)) {
       triggerNotice('Cannot delete primary administrator account.');
       return;
     }
@@ -556,13 +425,13 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       );
       triggerNotice(`Role for "${userName || 'User'}" appointed to ${newRole.toUpperCase()} successfully!`);
     } catch (err: any) {
-      alert('Error updating user role: ' + err.message);
+      triggerNotice('Error updating user role: ' + err.message);
     }
   };
 
   const handleCreateAndAppointUser = async () => {
     if (!appointName.trim() || !appointEmail.trim()) {
-      alert('Please enter user full name and email address.');
+      triggerNotice('Please enter user full name and email address.');
       return;
     }
     const newId = `user-${Date.now()}`;
@@ -575,7 +444,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       subject: appointRole === 'teacher' ? (appointDetail.trim() || 'General Science') : undefined,
       stream: appointRole === 'student' ? (appointDetail.trim() || '2k28 Science EM') : undefined,
       avatarUrl: '',
-      assignedClassIds: ['class-2k28-science-em'],
+      assignedClassIds: classes[0]?.id ? [classes[0].id] : [],
       createdAt: new Date().toISOString(),
     };
 
@@ -588,7 +457,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       setAppointRole('student');
       triggerNotice(`User "${newProfile.fullName}" appointed as ${appointRole.toUpperCase()} successfully!`);
     } catch (err: any) {
-      alert('Error appointing user role: ' + err.message);
+      triggerNotice('Error appointing user role: ' + err.message);
     }
   };
 
@@ -600,8 +469,8 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       id,
       title: editingAnnouncement.title,
       content: editingAnnouncement.content,
-      authorId: 'admin_jaasim',
-      authorName: 'M. N. M. Jaasim (Admin)',
+      authorId: userProfile?.userId || 'faculty_directorate',
+      authorName: 'Faculty Directorate',
       authorRole: 'admin',
       audience: (editingAnnouncement.audience as any) || 'all',
       isPinned: !!editingAnnouncement.isPinned,
@@ -635,8 +504,8 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       time: editingEvent.time || '08:00 AM',
       type: editingEvent.type || 'academic',
       location: editingEvent.location || 'Science Complex',
-      createdBy: 'admin_jaasim',
-      createdByName: 'M. N. M. Jaasim (Admin)',
+      createdBy: userProfile?.userId || 'faculty_directorate',
+      createdByName: 'Faculty Directorate',
       createdAt: editingEvent.createdAt || new Date().toISOString(),
     };
     await setDoc(doc(db, 'schoolEvents', id), payload, { merge: true });
@@ -1604,22 +1473,17 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={async () => {
-                  const seeded = await seedAuditConversations();
-                  setConversations(seeded);
-                  if (seeded.length > 0) setSelectedConvId(seeded[0].id);
-                  triggerNotice('Seeded 3 realistic student-teacher demo conversations.');
+                onClick={() => {
+                  triggerNotice('Conversations synced with live database.');
                 }}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold px-3 py-2 text-xs transition-colors"
-                title="Seed student and faculty demonstration chats"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-800 dark:text-slate-200 font-bold px-3 py-2 text-xs transition-colors"
+                title="Refresh communication threads"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>Reset / Seed Demo Chats</span>
+                <span>Refresh Communications</span>
               </button>
             </div>
-          </div>
 
           {/* Search & Participant Filter Controls */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
@@ -1820,8 +1684,9 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                       ) : (
                         convMessages.map((msg) => {
                           const isAdminDirective =
-                            msg.senderId === 'admin_jaasim' ||
+                            msg.text.includes('[OFFICIAL FACULTY DIRECTIVE]') ||
                             msg.text.includes('[OFFICIAL ADMIN DIRECTIVE]') ||
+                            msg.senderName.toLowerCase().includes('directorate') ||
                             msg.senderName.toLowerCase().includes('admin');
                           const isFaculty =
                             msg.senderId.includes('teacher') ||
@@ -2432,10 +2297,10 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                         id,
                         title: editingMaterial.title,
                         description: editingMaterial.description || '',
-                        classId: editingMaterial.classId || 'class-2k28-science-em',
+                        classId: editingMaterial.classId || (classes[0]?.id || ''),
                         subjectId: editingMaterial.subjectId || 'sub-cmath',
-                        teacherId: editingMaterial.teacherId || 'admin_jaasim',
-                        teacherName: editingMaterial.teacherName || 'M. N. M. Jaasim',
+                        teacherId: editingMaterial.teacherId || (userProfile?.userId || 'faculty_directorate'),
+                        teacherName: editingMaterial.teacherName || (userProfile?.fullName || 'Faculty Directorate'),
                         fileType: (editingMaterial.fileType as 'pdf' | 'document' | 'presentation' | 'image' | 'link') || 'pdf',
                         fileUrl: editingMaterial.fileUrl || '',
                         fileSize: editingMaterial.fileSize || '3.2 MB',

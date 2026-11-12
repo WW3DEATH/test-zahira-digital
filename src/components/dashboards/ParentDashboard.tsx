@@ -12,12 +12,14 @@ import {
   ShieldCheck,
   CheckCircle2,
   Clock,
+  Eye,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfile, TestMark } from '../../types';
+import { PDFPreviewModal, PDFPreviewData } from '../common/PDFPreviewModal';
 
 interface ParentDashboardProps {
   onNavigate: (page: string) => void;
@@ -81,96 +83,122 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     { code: 'ICT-28', name: 'Information & Communication Tech', score: 96, max: 100, grade: 'A', remarks: 'Top-tier algorithmic thinking and Python implementation.' },
   ];
 
+  const [previewData, setPreviewData] = useState<PDFPreviewData | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  const generateReportPDF = (): jsPDF => {
+    const doc = new jsPDF();
+
+    // Title & School Header
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE - 2K28 SCIENCE EM', 20, 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text('OFFICIAL ACADEMIC PROGRESS REPORT • G.C.E. A/L BATCH 2028', 20, 28);
+    doc.text('Mawanella, Sri Lanka • Zahira College Mawanella Science Project management', 20, 33);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 37, 190, 37);
+
+    // Student info block
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Scholar: ${currentStudent.fullName}`, 20, 46);
+    doc.text('Cohort: Zahira College 2k28 Science EM', 20, 52);
+    doc.text('Academic Term: Term 1 (2026)', 120, 46);
+    doc.text(`Overall Average: ${averagePercent}% (Grade A)`, 120, 52);
+
+    // Table Header
+    let y = 65;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(20, y, 170, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(51, 65, 85);
+    doc.text('SUBJECT', 24, y + 5.5);
+    doc.text('MAX', 110, y + 5.5);
+    doc.text('SCORE', 130, y + 5.5);
+    doc.text('GRADE', 155, y + 5.5);
+    doc.text('STATUS', 172, y + 5.5);
+
+    // Table Rows
+    y += 12;
+    subjects.forEach((subj) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text(subj.name, 24, y);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text(String(subj.max), 110, y);
+      doc.text(String(subj.score), 130, y);
+      doc.text(subj.grade, 155, y);
+      doc.text('Passed', 172, y);
+
+      // Remarks on next line
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Faculty Note: ${subj.remarks}`, 24, y + 4.5);
+
+      y += 12;
+    });
+
+    // Attendance and Dean signature block
+    y += 8;
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, y, 190, y);
+    y += 10;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Term Attendance Rate: 98.5% (Exemplary)', 20, y);
+
+    y += 18;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Certified by Academic Administration:', 20, y);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Zahira College Mawanella Science Project management', 20, y + 7);
+
+    return doc;
+  };
+
   const handleDownloadPDF = () => {
     setDownloading(true);
     try {
-      const doc = new jsPDF();
-
-      // Title & School Header
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE - 2K28 SCIENCE EM', 20, 22);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text('OFFICIAL ACADEMIC PROGRESS REPORT • G.C.E. A/L BATCH 2028', 20, 28);
-      doc.text('Mawanella, Sri Lanka • Zahira College Mawanella Science Project management', 20, 33);
-
-      doc.setDrawColor(203, 213, 225);
-      doc.line(20, 37, 190, 37);
-
-      // Student info block
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Scholar: ${currentStudent.fullName}`, 20, 46);
-      doc.text('Cohort: Zahira College 2k28 Science EM', 20, 52);
-      doc.text('Academic Term: Term 1 (2026)', 120, 46);
-      doc.text(`Overall Average: ${averagePercent}% (Grade A)`, 120, 52);
-
-      // Table Header
-      let y = 65;
-      doc.setFillColor(241, 245, 249);
-      doc.rect(20, y, 170, 8, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(51, 65, 85);
-      doc.text('SUBJECT', 24, y + 5.5);
-      doc.text('MAX', 110, y + 5.5);
-      doc.text('SCORE', 130, y + 5.5);
-      doc.text('GRADE', 155, y + 5.5);
-      doc.text('STATUS', 172, y + 5.5);
-
-      // Table Rows
-      y += 12;
-      subjects.forEach((subj) => {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(15, 23, 42);
-        doc.text(subj.name, 24, y);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(71, 85, 105);
-        doc.text(String(subj.max), 110, y);
-        doc.text(String(subj.score), 130, y);
-        doc.text(subj.grade, 155, y);
-        doc.text('Passed', 172, y);
-
-        // Remarks on next line
-        doc.setFontSize(8);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`Faculty Note: ${subj.remarks}`, 24, y + 4.5);
-
-        y += 12;
-      });
-
-      // Attendance and Dean signature block
-      y += 8;
-      doc.setDrawColor(226, 232, 240);
-      doc.line(20, y, 190, y);
-      y += 10;
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Term Attendance Rate: 98.5% (Exemplary)', 20, y);
-
-      y += 18;
-      doc.setFont('helvetica', 'normal');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Certified by Academic Administration:', 20, y);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Zahira College Mawanella Science Project management', 20, y + 7);
-
+      const doc = generateReportPDF();
       doc.save(`Academic_Report_Card_${currentStudent.fullName.replace(/\s+/g, '_')}_2k28.pdf`);
     } catch (e) {
       console.error('PDF generation error:', e);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handlePreviewPDF = () => {
+    try {
+      const doc = generateReportPDF();
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewData({
+        title: `Official Academic Report: ${currentStudent.fullName}`,
+        subtitle: 'Zahira College 2k28 Science EM • Term 1 Performance Digest',
+        category: 'Official Term Report',
+        filename: `Academic_Report_Card_${currentStudent.fullName.replace(/\s+/g, '_')}_2k28.pdf`,
+        blobUrl,
+        blob,
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('PDF preview generation error:', e);
     }
   };
 
@@ -192,14 +220,22 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handlePreviewPDF}
+              type="button"
+              className="inline-flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-sm shrink-0"
+            >
+              <Eye className="w-4 h-4 text-amber-300" />
+              <span>Preview PDF</span>
+            </button>
             <button
               onClick={handleDownloadPDF}
               disabled={downloading}
               className="inline-flex items-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-xs font-bold text-stone-950 transition-all shadow-md shrink-0"
             >
               <Download className="w-4 h-4" />
-              <span>{downloading ? 'Generating PDF...' : 'Download Official PDF Report'}</span>
+              <span>{downloading ? 'Generating...' : 'Download Official PDF'}</span>
             </button>
           </div>
         </div>
@@ -260,13 +296,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
         <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between text-stone-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">Academic Lead</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Faculty Authority</span>
             <div className="p-2 rounded-xl bg-amber-50 text-amber-700">
               <MessageSquare className="w-4 h-4" />
             </div>
           </div>
-          <p className="font-serif text-xl font-bold text-stone-900 mt-2">M. N. M. Jaasim</p>
-          <p className="text-[11px] text-stone-500 mt-2">mnmjaasim@gmail.com</p>
+          <p className="font-serif text-base font-bold text-stone-900 mt-2">Zahira College Mawanella Science Project management</p>
+          <p className="text-[11px] text-stone-500 mt-2">science@zahiracollegemw.lk</p>
         </div>
       </div>
 
@@ -305,6 +341,18 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Official In-App Interactive PDF Preview Modal */}
+      <PDFPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          if (previewData?.blobUrl) {
+            URL.revokeObjectURL(previewData.blobUrl);
+          }
+        }}
+        pdfData={previewData}
+      />
     </div>
   );
 };

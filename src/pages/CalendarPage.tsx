@@ -26,23 +26,29 @@ import {
   GraduationCap,
   Layers,
   CheckSquare,
+  Eye,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { jsPDF } from 'jspdf';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { SchoolEvent, SchoolEventType, AttendanceRecord, AttendanceStatus, UserProfile, SchoolClass, ScheduledClass } from '../types';
+import { SchoolEvent, SchoolEventType, AttendanceRecord, AttendanceStatus, UserProfile, SchoolClass, ScheduledClass, RosterStudent } from '../types';
 import {
   syncGoogleCalendarToFirestore,
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
 } from '../services/googleCalendarService';
+import { PDFPreviewModal, PDFPreviewData } from '../components/common/PDFPreviewModal';
 
-export const CalendarPage: React.FC = () => {
+export interface CalendarPageProps {
+  initialTab?: 'events' | 'attendance';
+}
+
+export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events' }) => {
   const { activeRole, userProfile, googleAccessToken, connectGoogleCalendar } = useAuth();
 
   // Active view tab: 'events' | 'attendance'
-  const [activeTab, setActiveTab] = useState<'events' | 'attendance'>('events');
+  const [activeTab, setActiveTab] = useState<'events' | 'attendance'>(initialTab);
 
   // Calendar date state (for browsing months)
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -51,7 +57,7 @@ export const CalendarPage: React.FC = () => {
   // Firestore real-time collections
   const [schoolEvents, setSchoolEvents] = useState<SchoolEvent[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-  const [students, setStudents] = useState<UserProfile[]>([]);
+  const [students, setStudents] = useState<RosterStudent[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
 
   // Filtering
@@ -75,7 +81,7 @@ export const CalendarPage: React.FC = () => {
   const [savingEvent, setSavingEvent] = useState(false);
 
   // Attendance Register State
-  const [selectedClassId, setSelectedClassId] = useState('class-2k28-science-em');
+  const [selectedClassId, setSelectedClassId] = useState('');
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [register, setRegister] = useState<Record<string, AttendanceStatus>>({});
   const [attendanceSaved, setAttendanceSaved] = useState(false);
@@ -92,6 +98,8 @@ export const CalendarPage: React.FC = () => {
   const [newClassRoom, setNewClassRoom] = useState('Science Complex Hall 28');
   const [savingScheduledClass, setSavingScheduledClass] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [previewPDFData, setPreviewPDFData] = useState<PDFPreviewData | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const isTeacherOrAdmin = activeRole === 'admin' || activeRole === 'teacher';
 
@@ -133,21 +141,19 @@ export const CalendarPage: React.FC = () => {
     return () => unsub();
   }, [selectedClassId, attendanceDate]);
 
-  // 3. Real-time listener for student users
+  // 3. Real-time listener for student roster (isolated from website signups)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'userProfiles'), (snapshot) => {
-      const list: UserProfile[] = [];
-      snapshot.forEach((d) => {
-        const u = d.data() as UserProfile;
-        if (u.role === 'student') list.push(u);
-      });
+    const unsub = onSnapshot(collection(db, 'attendanceRoster'), (snapshot) => {
+      const list: RosterStudent[] = [];
+      snapshot.forEach((d) => list.push(d.data() as RosterStudent));
+      list.sort((a, b) => (a.indexNumber || '').localeCompare(b.indexNumber || ''));
       setStudents(list);
 
       setRegister((prev) => {
         const updated = { ...prev };
         list.forEach((s) => {
-          if (!updated[s.userId]) {
-            updated[s.userId] = 'present';
+          if (!updated[s.id]) {
+            updated[s.id] = 'present';
           }
         });
         return updated;
@@ -256,7 +262,7 @@ export const CalendarPage: React.FC = () => {
         endDate: eventEndDate || undefined,
         time: eventTime || undefined,
         type: eventType,
-        classId: 'class-2k28-science-em',
+        classId: selectedClassId || 'general',
         location: eventLocation.trim() || 'Zahira College Mawanella',
         createdBy: userProfile?.userId || 'faculty',
         createdByName: userProfile?.fullName || 'Zahira Faculty',
@@ -317,7 +323,7 @@ export const CalendarPage: React.FC = () => {
       return [
         {
           id: `default-${dateStr}-maths`,
-          classId: selectedClassId || 'class-2k28-science-em',
+          classId: selectedClassId || 'general',
           className: '2k28 Science EM',
           date: dateStr,
           timeSlot: '08:00 - 09:30',
@@ -331,7 +337,7 @@ export const CalendarPage: React.FC = () => {
         },
         {
           id: `default-${dateStr}-physics`,
-          classId: selectedClassId || 'class-2k28-science-em',
+          classId: selectedClassId || 'general',
           className: '2k28 Science EM',
           date: dateStr,
           timeSlot: '09:45 - 11:15',
@@ -345,7 +351,7 @@ export const CalendarPage: React.FC = () => {
         },
         {
           id: `default-${dateStr}-chemistry`,
-          classId: selectedClassId || 'class-2k28-science-em',
+          classId: selectedClassId || 'general',
           className: '2k28 Science EM',
           date: dateStr,
           timeSlot: '11:30 - 13:00',
@@ -372,7 +378,7 @@ export const CalendarPage: React.FC = () => {
       const classSessionId = `class-session-${Date.now()}`;
       const defaultRegister: Record<string, AttendanceStatus> = {};
       students.forEach((s) => {
-        defaultRegister[s.userId] = 'present';
+        defaultRegister[s.id] = 'present';
       });
 
       const newSession: ScheduledClass = {
@@ -424,6 +430,44 @@ export const CalendarPage: React.FC = () => {
     }
   };
 
+  // Delete scheduled class session occurring on date (teacher and admin)
+  const handleDeleteScheduledClass = async (sessionClassId: string, subjectName: string) => {
+    if (!isTeacherOrAdmin) return;
+    if (!confirm(`Are you sure you want to remove the scheduled session "${subjectName}" occurring on ${attendanceDate}?`)) return;
+    try {
+      if (sessionClassId.startsWith('default-')) {
+        const defaults = getClassesForDate(attendanceDate);
+        for (const c of defaults) {
+          if (c.id !== sessionClassId) {
+            await setDoc(doc(db, 'scheduledClasses', `session-${attendanceDate}-${c.subject.slice(0, 4)}`), {
+              ...c,
+              id: `session-${attendanceDate}-${c.subject.slice(0, 4)}`,
+            });
+          }
+        }
+      } else {
+        await deleteDoc(doc(db, 'scheduledClasses', sessionClassId));
+        await deleteDoc(doc(db, 'schoolEvents', `ev-class-${sessionClassId}`)).catch(() => {});
+      }
+      setSelectedScheduledClassId(null);
+    } catch (err) {
+      console.error('Failed to remove scheduled class:', err);
+    }
+  };
+
+  // Delete class cohort (teacher and admin)
+  const handleDeleteClassCohort = async () => {
+    if (!selectedClassId || !isTeacherOrAdmin) return;
+    const targetCohort = classes.find((c) => c.id === selectedClassId);
+    if (!confirm(`Are you sure you want to remove the class cohort "${targetCohort?.name || selectedClassId}"?`)) return;
+    try {
+      await deleteDoc(doc(db, 'classes', selectedClassId));
+      setSelectedClassId('');
+    } catch (err) {
+      console.error('Failed to delete class cohort:', err);
+    }
+  };
+
   // Save attendance for the selected class session
   const handleSaveClassAttendance = async (targetClass?: ScheduledClass) => {
     const activeClass = targetClass || (selectedScheduledClassId ? scheduledClasses.find((c) => c.id === selectedScheduledClassId) : null);
@@ -470,200 +514,238 @@ export const CalendarPage: React.FC = () => {
     }
   };
 
-  // Export comprehensive Single-Day Multi-Class Attendance PDF
-  const handleExportDailyComprehensivePDF = (dateStr: string) => {
-    setExportingPDF(true);
-    try {
-      const doc = new jsPDF();
-      const dayDate = new Date(`${dateStr}T00:00:00`);
-      const formattedDay = dayDate.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
+  const handleMarkAllPresent = () => {
+    const updated: Record<string, AttendanceStatus> = {};
+    students.forEach((st) => {
+      updated[st.id] = 'present';
+    });
+    setRegister(updated);
+  };
 
-      // 1. Collect all classes that happened on this SINGLE DAY only
-      const dayClasses = getClassesForDate(dateStr);
-      const classesToRender = dayClasses.length > 0 ? dayClasses : [
-        {
-          id: `day-${dateStr}-general`,
-          classId: selectedClassId,
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '08:00 - 13:30',
-          periodName: 'Academic Schedule',
-          subject: 'Standard Science Cohort Sessions',
-          topic: 'Daily Lecture & Laboratory Practical Block',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex Hall 28',
-          createdAt: dateStr,
-        },
-      ];
+  const handleAttendanceStatusChange = (studentId: string, status: AttendanceStatus) => {
+    setRegister((prev) => ({
+      ...prev,
+      [studentId]: status,
+    }));
+  };
 
-      // Page 1: Header
+  // Generate comprehensive Single-Day Multi-Class Attendance jsPDF instance
+  const generateDailyAttendanceDoc = (dateStr: string): jsPDF => {
+    const doc = new jsPDF();
+    const dayDate = new Date(`${dateStr}T00:00:00`);
+    const formattedDay = dayDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    // 1. Collect all classes that happened on this SINGLE DAY only
+    const dayClasses = getClassesForDate(dateStr);
+    const classesToRender = dayClasses.length > 0 ? dayClasses : [
+      {
+        id: `day-${dateStr}-general`,
+        classId: selectedClassId,
+        className: '2k28 Science EM',
+        date: dateStr,
+        timeSlot: '08:00 - 13:30',
+        periodName: 'Academic Schedule',
+        subject: 'Standard Science Cohort Sessions',
+        topic: 'Daily Lecture & Laboratory Practical Block',
+        teacherId: userProfile?.userId || 'faculty',
+        teacherName: userProfile?.fullName || 'Zahira Faculty',
+        room: 'Science Complex Hall 28',
+        createdAt: dateStr,
+      },
+    ];
+
+    // Page 1: Header
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('OFFICIAL DAILY ACADEMIC REGISTER & ALL-CLASSES ATTENDANCE REPORT', 20, 26);
+    doc.text('Certified Single-Day Roll-Call Summary • Internal Faculty & Administration Record', 20, 31);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 35, 190, 35);
+
+    // Single Day Audit Banner
+    doc.setFillColor(239, 246, 255);
+    doc.roundedRect(20, 39, 170, 18, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(30, 64, 175);
+    doc.text(`DAILY AUDIT DATE: ${formattedDay.toUpperCase()} (${dateStr})`, 24, 46);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Cohort: 2k28 Science EM • Total Classes Conducted Today: ${classesToRender.length}`, 24, 52);
+    doc.text(`Supervisor: ${userProfile?.fullName || 'Faculty Lead'} (${userProfile?.role === 'admin' ? 'Faculty Directorate' : userProfile?.role || 'Teacher'})`, 115, 52);
+
+    let y = 65;
+
+    // Iterate through EVERY CLASS that happened on this SINGLE DAY
+    classesToRender.forEach((cls, classIdx) => {
+      if (y > 215) {
+        doc.addPage();
+        y = 25;
+      }
+
+      // Class Session Title Banner
+      doc.setFillColor(241, 245, 249);
+      doc.roundedRect(20, y, 170, 11, 1.5, 1.5, 'F');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
-
-      doc.setFont('helvetica', 'normal');
       doc.setFontSize(9.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text('OFFICIAL DAILY ACADEMIC REGISTER & ALL-CLASSES ATTENDANCE REPORT', 20, 26);
-      doc.text('Certified Single-Day Roll-Call Summary • Internal Faculty & Administration Record', 20, 31);
-
-      doc.setDrawColor(203, 213, 225);
-      doc.line(20, 35, 190, 35);
-
-      // Single Day Audit Banner
-      doc.setFillColor(239, 246, 255);
-      doc.roundedRect(20, 39, 170, 18, 2, 2, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(30, 64, 175);
-      doc.text(`DAILY AUDIT DATE: ${formattedDay.toUpperCase()} (${dateStr})`, 24, 46);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Class ${classIdx + 1}: ${cls.subject} (${cls.timeSlot})`, 24, y + 7.5);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(51, 65, 85);
-      doc.text(`Cohort: 2k28 Science EM • Total Classes Conducted Today: ${classesToRender.length}`, 24, 52);
-      doc.text(`Supervisor: ${userProfile?.fullName || 'Faculty Lead'} (${userProfile?.role || 'Teacher'})`, 115, 52);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Room: ${cls.room} • Faculty: ${cls.teacherName}`, 120, y + 7.5);
 
-      let y = 65;
+      y += 15;
 
-      // Iterate through EVERY CLASS that happened on this SINGLE DAY
-      classesToRender.forEach((cls, classIdx) => {
-        if (y > 215) {
+      // Table Header
+      doc.setFillColor(248, 250, 252);
+      doc.rect(20, y, 170, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text('ROLL / INDEX', 24, y + 4.8);
+      doc.text('SCHOLAR NAME', 60, y + 4.8);
+      doc.text('STATUS', 135, y + 4.8);
+      doc.text('VERIFICATION', 165, y + 4.8);
+
+      y += 10;
+
+      const classRecords = cls.attendanceRecords || register;
+      let pCount = 0;
+      let lCount = 0;
+      let aCount = 0;
+
+      students.forEach((st, sIdx) => {
+        if (y > 275) {
           doc.addPage();
           y = 25;
         }
 
-        // Class Session Title Banner
-        doc.setFillColor(241, 245, 249);
-        doc.roundedRect(20, y, 170, 11, 1.5, 1.5, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text(`Class ${classIdx + 1}: ${cls.subject} (${cls.timeSlot})`, 24, y + 7.5);
+        const status: AttendanceStatus = classRecords[st.id] || 'present';
+        if (status === 'present') pCount++;
+        else if (status === 'late') lCount++;
+        else if (status === 'absent') aCount++;
+
+        const indexNo = st.indexNumber || `286000${sIdx + 1}`;
 
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
         doc.setTextColor(100, 116, 139);
-        doc.text(`Room: ${cls.room} • Faculty: ${cls.teacherName}`, 120, y + 7.5);
+        doc.text(indexNo, 24, y);
 
-        y += 15;
-
-        // Table Header
-        doc.setFillColor(248, 250, 252);
-        doc.rect(20, y, 170, 7, 'F');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(71, 85, 105);
-        doc.text('ROLL / INDEX', 24, y + 4.8);
-        doc.text('SCHOLAR NAME', 60, y + 4.8);
-        doc.text('STATUS', 135, y + 4.8);
-        doc.text('VERIFICATION', 165, y + 4.8);
+        doc.setTextColor(15, 23, 42);
+        doc.text(st.fullName || 'Scholar', 60, y);
 
-        y += 10;
+        if (status === 'present') {
+          doc.setTextColor(22, 101, 52);
+          doc.text('PRESENT', 135, y);
+        } else if (status === 'late') {
+          doc.setTextColor(180, 83, 9);
+          doc.text('LATE', 135, y);
+        } else if (status === 'absent') {
+          doc.setTextColor(185, 28, 28);
+          doc.text('ABSENT', 135, y);
+        } else {
+          doc.setTextColor(71, 85, 105);
+          doc.text('EXCUSED', 135, y);
+        }
 
-        const classRecords = cls.attendanceRecords || register;
-        let pCount = 0;
-        let lCount = 0;
-        let aCount = 0;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Verified', 165, y);
 
-        students.forEach((st, sIdx) => {
-          if (y > 275) {
-            doc.addPage();
-            y = 25;
-          }
-
-          const status: AttendanceStatus = classRecords[st.userId] || 'present';
-          if (status === 'present') pCount++;
-          else if (status === 'late') lCount++;
-          else if (status === 'absent') aCount++;
-
-          const indexNo = st.bio?.includes('Index:')
-            ? st.bio.split('Index:')[1].split('•')[0].trim()
-            : `2K28-SCI-${String(sIdx + 1).padStart(3, '0')}`;
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.setTextColor(100, 116, 139);
-          doc.text(indexNo, 24, y);
-
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(15, 23, 42);
-          doc.text(st.fullName || 'Scholar', 60, y);
-
-          if (status === 'present') {
-            doc.setTextColor(22, 101, 52);
-            doc.text('PRESENT', 135, y);
-          } else if (status === 'late') {
-            doc.setTextColor(180, 83, 9);
-            doc.text('LATE', 135, y);
-          } else if (status === 'absent') {
-            doc.setTextColor(185, 28, 28);
-            doc.text('ABSENT', 135, y);
-          } else {
-            doc.setTextColor(71, 85, 105);
-            doc.text('EXCUSED', 135, y);
-          }
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(148, 163, 184);
-          doc.text('Verified', 165, y);
-
-          y += 7;
-        });
-
-        // Class Summary Line
-        const classTotal = students.length || 1;
-        const classRate = Math.round(((pCount + lCount * 0.5) / classTotal) * 100);
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(8);
-        doc.setTextColor(71, 85, 105);
-        doc.text(
-          `Class Summary: ${pCount} Present, ${lCount} Late, ${aCount} Absent • Attendance Rate: ${classRate}%`,
-          24,
-          y + 2
-        );
-        y += 11;
+        y += 7;
       });
 
-      // End of Single-Day Document Certification Block
-      if (y > 240) {
-        doc.addPage();
-        y = 30;
-      }
-
-      doc.setDrawColor(226, 232, 240);
-      doc.line(20, y + 4, 190, y + 4);
-      y += 12;
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Certified by Academic Administration:', 20, y);
-
-      y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(30, 64, 175);
-      doc.text('Zahira College Mawanella Science Project management', 20, y);
-
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
+      // Class Summary Line
+      const classTotal = students.length || 1;
+      const classRate = Math.round(((pCount + lCount * 0.5) / classTotal) * 100);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
       doc.text(
-        `Official Single-Day All-Classes Academic Attendance Record • Generated on ${new Date().toLocaleString()}`,
-        20,
-        y
+        `Class Summary: ${pCount} Present, ${lCount} Late, ${aCount} Absent • Attendance Rate: ${classRate}%`,
+        24,
+        y + 2
       );
+      y += 11;
+    });
 
+    // End of Single-Day Document Certification Block
+    if (y > 240) {
+      doc.addPage();
+      y = 30;
+    }
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, y + 4, 190, y + 4);
+    y += 12;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Certified by Academic Administration:', 20, y);
+
+    y += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(30, 64, 175);
+    doc.text('Zahira College Mawanella Science Project management', 20, y);
+
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Official Single-Day All-Classes Academic Attendance Record • Generated on ${new Date().toLocaleString()}`,
+      20,
+      y
+    );
+
+    return doc;
+  };
+
+  // Preview Single-Day Attendance in interactive in-app modal
+  const handlePreviewDailyComprehensivePDF = (dateStr: string) => {
+    try {
+      const doc = generateDailyAttendanceDoc(dateStr);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewPDFData({
+        title: `Daily Attendance: ${dateStr}`,
+        filename: `Zahira_College_Daily_Attendance_AllClasses_${dateStr}.pdf`,
+        blobUrl,
+        blob,
+        category: 'Daily Academic Register',
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('Daily PDF preview error:', e);
+    }
+  };
+
+  // Export comprehensive Single-Day Multi-Class Attendance PDF download
+  const handleExportDailyComprehensivePDF = (dateStr: string) => {
+    setExportingPDF(true);
+    try {
+      const doc = generateDailyAttendanceDoc(dateStr);
       doc.save(`Zahira_College_Daily_Attendance_AllClasses_${dateStr}.pdf`);
     } catch (e) {
       console.error('Daily PDF export error:', e);
@@ -1177,14 +1259,26 @@ export const CalendarPage: React.FC = () => {
                   <span>Mark Attendance for {selectedDateStr}</span>
                 </button>
 
-                <button
-                  onClick={() => handleExportDailyComprehensivePDF(selectedDateStr)}
-                  disabled={exportingPDF}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-stone-300 hover:bg-stone-50 py-2 px-3 text-xs font-bold text-stone-800 transition-colors shadow-xs"
-                >
-                  <Download className="w-4 h-4 text-amber-600" />
-                  <span>{exportingPDF ? 'Generating...' : `Export ${selectedDateStr} All-Classes PDF`}</span>
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handlePreviewDailyComprehensivePDF(selectedDateStr)}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 py-2 px-2 text-xs font-bold text-blue-700 transition-colors shadow-2xs"
+                    title={`Preview ${selectedDateStr} attendance PDF`}
+                  >
+                    <Eye className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Preview PDF</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleExportDailyComprehensivePDF(selectedDateStr)}
+                    disabled={exportingPDF}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-stone-300 hover:bg-stone-50 py-2 px-2 text-xs font-bold text-stone-800 transition-colors shadow-xs"
+                    title={`Export ${selectedDateStr} attendance PDF`}
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-600" />
+                    <span>{exportingPDF ? 'Exporting...' : 'Export PDF'}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1250,17 +1344,28 @@ export const CalendarPage: React.FC = () => {
                 <label className="font-semibold text-stone-500 uppercase tracking-wider block mb-1 text-[10px]">
                   Class Cohort
                 </label>
-                <select
-                  value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
-                  className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-stone-800 font-semibold focus:outline-none"
-                >
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.grade})
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={selectedClassId}
+                    onChange={(e) => setSelectedClassId(e.target.value)}
+                    className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-stone-800 font-semibold focus:outline-none"
+                  >
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.grade})
+                      </option>
+                    ))}
+                  </select>
+                  {isTeacherOrAdmin && selectedClassId && (
+                    <button
+                      onClick={handleDeleteClassCohort}
+                      className="p-1.5 rounded-lg border border-stone-200 hover:bg-rose-50 hover:text-rose-600 text-stone-400 transition-colors"
+                      title="Remove class cohort"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -1287,7 +1392,16 @@ export const CalendarPage: React.FC = () => {
                 </div>
               )}
 
-              {/* SINGLE DAY MULTI-CLASS PDF EXPORT BUTTON */}
+              {/* SINGLE DAY MULTI-CLASS PDF PREVIEW & EXPORT BUTTONS */}
+              <button
+                onClick={() => handlePreviewDailyComprehensivePDF(attendanceDate)}
+                className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3.5 py-1.5 text-xs font-bold text-blue-700 transition-colors shadow-2xs"
+                title="Preview certified single-day PDF in-app"
+              >
+                <Eye className="w-3.5 h-3.5 text-blue-600" />
+                <span>Preview Daily PDF</span>
+              </button>
+
               <button
                 onClick={() => handleExportDailyComprehensivePDF(attendanceDate)}
                 disabled={exportingPDF}
@@ -1295,7 +1409,7 @@ export const CalendarPage: React.FC = () => {
                 title="Export certified single-day PDF with all classes and student attendance"
               >
                 <Download className="w-3.5 h-3.5 text-amber-400" />
-                <span>{exportingPDF ? 'Exporting...' : 'Export Single-Day Multi-Class PDF'}</span>
+                <span>{exportingPDF ? 'Exporting...' : 'Export Daily PDF'}</span>
               </button>
 
               {isTeacherOrAdmin && (
@@ -1361,35 +1475,51 @@ export const CalendarPage: React.FC = () => {
                 const rate = Math.round((pCount / total) * 100);
 
                 return (
-                  <button
+                  <div
                     key={cls.id}
-                    onClick={() => {
-                      setSelectedScheduledClassId(cls.id);
-                      if (cls.attendanceRecords) {
-                        setRegister(cls.attendanceRecords);
-                      }
-                    }}
                     className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all ${
                       isSelected
                         ? 'bg-white border-blue-600 text-blue-900 shadow-xs ring-1 ring-blue-600'
                         : 'bg-white/80 border-stone-200 text-stone-700 hover:bg-white hover:border-stone-300'
                     }`}
                   >
-                    <GraduationCap className={`w-4 h-4 ${isSelected ? 'text-blue-600' : 'text-stone-400'}`} />
-                    <div className="text-left">
-                      <p className="font-bold text-[11px] leading-tight">{cls.subject}</p>
-                      <p className="text-[10px] text-stone-500 font-normal">
-                        {cls.timeSlot} • {cls.room}
-                      </p>
-                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedScheduledClassId(cls.id);
+                        if (cls.attendanceRecords) {
+                          setRegister(cls.attendanceRecords);
+                        }
+                      }}
+                      className="flex items-center gap-2.5 text-left"
+                    >
+                      <GraduationCap className={`w-4 h-4 shrink-0 ${isSelected ? 'text-blue-600' : 'text-stone-400'}`} />
+                      <div>
+                        <p className="font-bold text-[11px] leading-tight">{cls.subject}</p>
+                        <p className="text-[10px] text-stone-500 font-normal">
+                          {cls.timeSlot} • {cls.room}
+                        </p>
+                      </div>
+                    </button>
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                         rate >= 85 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                       }`}
                     >
                       {rate}% Present
                     </span>
-                  </button>
+                    {isTeacherOrAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteScheduledClass(cls.id, cls.subject);
+                        }}
+                        className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors ml-1"
+                        title="Remove scheduled class occurring on this date"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1424,7 +1554,7 @@ export const CalendarPage: React.FC = () => {
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-50 text-stone-600 font-semibold uppercase tracking-wider text-[11px]">
                     <th className="py-3 px-4">Student Scholar</th>
-                    <th className="py-3 px-4">Email</th>
+                    <th className="py-3 px-4 font-mono">Index No</th>
                     <th className="py-3 px-4">Status on {attendanceDate}</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
@@ -1434,18 +1564,18 @@ export const CalendarPage: React.FC = () => {
                     <tr>
                       <td colSpan={4} className="py-10 text-center text-stone-500">
                         <Users className="w-8 h-8 mx-auto text-stone-400 mb-2" />
-                        <p className="font-semibold text-stone-700">No students registered in 2k28 Science EM yet.</p>
+                        <p className="font-semibold text-stone-700">No scholars enrolled in attendance roster yet.</p>
                         <p className="text-xs text-stone-400 mt-1">
-                          When users sign up as students, they appear here automatically.
+                          Teachers can bulk import or add student names directly from the Attendance page without creating website accounts.
                         </p>
                       </td>
                     </tr>
                   ) : (
                     students.map((student) => {
-                      const status = register[student.userId] || 'present';
+                      const status = register[student.id] || 'present';
 
                       return (
-                        <tr key={student.userId} className="hover:bg-stone-50/50 transition-colors">
+                        <tr key={student.id} className="hover:bg-stone-50/50 transition-colors">
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2.5">
                               <div className="h-8 w-8 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
@@ -1454,13 +1584,13 @@ export const CalendarPage: React.FC = () => {
                               <div>
                                 <p className="font-bold text-stone-900">{student.fullName}</p>
                                 <p className="text-[10px] text-stone-400">
-                                  {student.bio || '2k28 Science EM Scholar'}
+                                  Index: {student.indexNumber} • 2k28 Science EM Scholar
                                 </p>
                               </div>
                             </div>
                           </td>
 
-                          <td className="py-3 px-4 font-mono text-stone-600">{student.email}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-blue-900">{student.indexNumber}</td>
 
                           <td className="py-3 px-4">
                             <span
@@ -1482,7 +1612,7 @@ export const CalendarPage: React.FC = () => {
                             {isTeacherOrAdmin ? (
                               <div className="inline-flex items-center rounded-lg border border-stone-200 bg-white p-0.5 shadow-2xs">
                                 <button
-                                  onClick={() => handleAttendanceStatusChange(student.userId, 'present')}
+                                  onClick={() => handleAttendanceStatusChange(student.id, 'present')}
                                   className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
                                     status === 'present'
                                       ? 'bg-emerald-600 text-white'
@@ -1492,7 +1622,7 @@ export const CalendarPage: React.FC = () => {
                                   Present
                                 </button>
                                 <button
-                                  onClick={() => handleAttendanceStatusChange(student.userId, 'absent')}
+                                  onClick={() => handleAttendanceStatusChange(student.id, 'absent')}
                                   className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
                                     status === 'absent'
                                       ? 'bg-rose-600 text-white'
@@ -1502,7 +1632,7 @@ export const CalendarPage: React.FC = () => {
                                   Absent
                                 </button>
                                 <button
-                                  onClick={() => handleAttendanceStatusChange(student.userId, 'late')}
+                                  onClick={() => handleAttendanceStatusChange(student.id, 'late')}
                                   className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
                                     status === 'late'
                                       ? 'bg-amber-500 text-white'
@@ -1512,7 +1642,7 @@ export const CalendarPage: React.FC = () => {
                                   Late
                                 </button>
                                 <button
-                                  onClick={() => handleAttendanceStatusChange(student.userId, 'excused')}
+                                  onClick={() => handleAttendanceStatusChange(student.id, 'excused')}
                                   className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
                                     status === 'excused'
                                       ? 'bg-sky-600 text-white'
@@ -1887,6 +2017,13 @@ export const CalendarPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* In-App Live PDF Preview Modal */}
+      <PDFPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        pdfData={previewPDFData}
+      />
     </div>
   );
 };

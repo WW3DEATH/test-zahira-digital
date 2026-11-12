@@ -23,6 +23,7 @@ import {
 import { auth, db, sanitizeFirestoreDoc } from '../firebase';
 import { UserProfile, UserRole, AppNotification } from '../types';
 import { REAL_ADMIN_PROFILE, seedInitialDatabaseIfEmpty } from '../services/dataService';
+import { ensureStudentIndexNumber, generateNextStudentIndex } from '../services/studentIndexService';
 
 interface AuthContextType {
   firebaseUser: FirebaseUser | null;
@@ -138,8 +139,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             stream: assignedRole === 'student' ? (pending.stream || '') : '',
             linkedStudentIds: assignedRole === 'parent' && pending.studentNameOrIndex ? [pending.studentNameOrIndex] : [],
             createdAt: new Date().toISOString(),
-            assignedClassIds: ['class-2k28-science-em'],
-            enrolledClassIds: ['class-2k28-science-em'],
+            assignedClassIds: [],
+            enrolledClassIds: [],
           };
         } else {
           // Check if localStorage has an established profile for this user
@@ -168,8 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
                 : `${defaultName} • Zahira College 2k28 Science EM Scholar`,
               createdAt: new Date().toISOString(),
-              assignedClassIds: ['class-2k28-science-em'],
-              enrolledClassIds: ['class-2k28-science-em'],
+              assignedClassIds: [],
+              enrolledClassIds: [],
             };
           }
         }
@@ -191,20 +192,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             async (snap) => {
               if (snap.exists()) {
                 const rawData = snap.data() as UserProfile;
-                const data: UserProfile = { ...rawData, userId: user.uid };
-                if (user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com' && data.role !== 'admin') {
-                  data.role = 'admin';
-                  await setDoc(profileRef, sanitizeFirestoreDoc(data), { merge: true }).catch(() => {});
+                let data: UserProfile = { ...rawData, userId: user.uid };
+                if (user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com') {
+                  if (data.role !== 'admin') data.role = 'admin';
+                  if (!data.indexNumber) data.indexNumber = '2860003';
+                } else if ((data.role === 'student' || !data.role) && !data.indexNumber) {
+                  data = await ensureStudentIndexNumber(data);
                 }
                 setUserProfile(data);
                 localStorage.setItem('zahira_auth_session', JSON.stringify(data));
               } else {
-                // Ensure profile is created in Firestore userProfiles collection!
-                await setDoc(profileRef, sanitizeFirestoreDoc(initialProfile), { merge: true }).catch((err) => {
+                // Ensure profile is created in Firestore userProfiles collection with a valid student index!
+                let profileToSave = initialProfile;
+                if (profileToSave.role === 'student' || user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com') {
+                  profileToSave = await ensureStudentIndexNumber(profileToSave);
+                }
+                await setDoc(profileRef, sanitizeFirestoreDoc(profileToSave), { merge: true }).catch((err) => {
                   console.warn('Initial profile doc save warning:', err);
                 });
-                setUserProfile(initialProfile);
-                localStorage.setItem('zahira_auth_session', JSON.stringify(initialProfile));
+                setUserProfile(profileToSave);
+                localStorage.setItem('zahira_auth_session', JSON.stringify(profileToSave));
               }
             },
             (err) => {
@@ -336,8 +343,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
               : `${displayName} • Zahira College 2k28 Science EM Scholar`,
             createdAt: new Date().toISOString(),
-            assignedClassIds: ['class-2k28-science-em'],
-            enrolledClassIds: ['class-2k28-science-em'],
+            assignedClassIds: [],
+            enrolledClassIds: [],
           };
         }
         setUserProfile(prof);
@@ -379,8 +386,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
             : `${cleanEmail.split('@')[0]} • Zahira College 2k28 Science EM Scholar`,
           createdAt: new Date().toISOString(),
-          assignedClassIds: ['class-2k28-science-em'],
-          enrolledClassIds: ['class-2k28-science-em'],
+          assignedClassIds: [],
+          enrolledClassIds: [],
         };
         setUserProfile(fallbackProfile);
         localStorage.setItem('zahira_auth_session', JSON.stringify(fallbackProfile));
@@ -426,8 +433,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
             : 'Zahira College 2k28 Science EM Scholar',
           createdAt: new Date().toISOString(),
-          assignedClassIds: ['class-2k28-science-em'],
-          enrolledClassIds: ['class-2k28-science-em'],
+          assignedClassIds: [],
+          enrolledClassIds: [],
         };
         setUserProfile(prof);
         localStorage.setItem('zahira_auth_session', JSON.stringify(prof));
@@ -488,8 +495,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
             : 'Zahira College 2k28 Science EM Scholar',
           createdAt: new Date().toISOString(),
-          assignedClassIds: ['class-2k28-science-em'],
-          enrolledClassIds: ['class-2k28-science-em'],
+          assignedClassIds: [],
+          enrolledClassIds: [],
         };
         setUserProfile(profile);
         localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
@@ -552,11 +559,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const isAdmin = cleanEmail === 'mnmjaasim@gmail.com';
         const assignedRole: UserRole = isAdmin ? 'admin' : role;
 
+        // Generate official 7-digit student index number for new student scholars
+        let studentIndex: string | undefined = undefined;
+        if (assignedRole === 'student' || isAdmin) {
+          studentIndex = await generateNextStudentIndex(cleanEmail);
+        }
+
         let bioText = `${name} (${assignedRole.toUpperCase()}) - Zahira College 2k28 Science EM`;
         if (assignedRole === 'teacher' && extra?.subject) {
           bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
         } else if (assignedRole === 'student' && extra?.stream) {
-          bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+          bioText = `${extra.stream} Scholar (Index: ${studentIndex}) - Zahira College 2k28 Science EM`;
         } else if (assignedRole === 'parent') {
           bioText = `${name} (${extra?.relationship || 'Parent'}) of ${extra?.studentNameOrIndex || '2k28 Science EM Scholar'} - Zahira College`;
         }
@@ -566,19 +579,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: cleanEmail,
           fullName: name,
           role: assignedRole,
+          indexNumber: studentIndex,
           avatarUrl: '',
           phone: extra?.phone || '',
           subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
           stream: (assignedRole === 'student' ? extra?.stream : '') || '',
           linkedStudentIds: assignedRole === 'parent' && extra?.studentNameOrIndex ? [extra.studentNameOrIndex] : [],
-          enrolledClassIds: ['class-2k28-science-em'],
-          assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : [],
+          enrolledClassIds: [],
+          assignedClassIds: [],
           bio: bioText,
           createdAt: new Date().toISOString(),
         };
 
         // Write directly to userProfiles collection with merge: true
         await setDoc(doc(db, 'userProfiles', credential.user.uid), sanitizeFirestoreDoc(profile), { merge: true });
+
+        // Ensure newly registered student is registered in students collection for attendance rosters
+        if (assignedRole === 'student') {
+          await setDoc(
+            doc(db, 'students', credential.user.uid),
+            {
+              userId: credential.user.uid,
+              fullName: name,
+              email: cleanEmail,
+              indexNumber: studentIndex,
+              stream: extra?.stream || '2k28 Science EM',
+              enrolledAt: new Date().toISOString(),
+            },
+            { merge: true }
+          ).catch((dbErr) => console.warn('Students collection sync:', dbErr));
+        }
+
         setUserProfile(profile);
         localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
         pendingSignUpData = null;
@@ -605,11 +636,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const assignedRole: UserRole = isAdmin ? 'admin' : role;
         const localId = isAdmin ? 'admin_jaasim_official' : `user_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
+        let studentIndex: string | undefined = undefined;
+        if (assignedRole === 'student' || isAdmin) {
+          studentIndex = await generateNextStudentIndex(cleanEmail);
+        }
+
         let bioText = `${name} (${assignedRole.toUpperCase()}) - Zahira College 2k28 Science EM`;
         if (assignedRole === 'teacher' && extra?.subject) {
           bioText = `${extra.subject} Faculty - Zahira College 2k28 Science EM`;
         } else if (assignedRole === 'student' && extra?.stream) {
-          bioText = `${extra.stream} Scholar - Zahira College 2k28 Science EM`;
+          bioText = `${extra.stream} Scholar (Index: ${studentIndex}) - Zahira College 2k28 Science EM`;
         } else if (assignedRole === 'parent') {
           bioText = `${name} (${extra?.relationship || 'Parent'}) of ${extra?.studentNameOrIndex || '2k28 Science EM Scholar'} - Zahira College`;
         }
@@ -619,13 +655,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: cleanEmail,
           fullName: name || (isAdmin ? 'M. N. M. Jaasim' : cleanEmail.split('@')[0]),
           role: assignedRole,
+          indexNumber: studentIndex,
           avatarUrl: '',
           phone: extra?.phone || '',
           subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
           stream: (assignedRole === 'student' ? extra?.stream : '') || '',
           linkedStudentIds: assignedRole === 'parent' && extra?.studentNameOrIndex ? [extra.studentNameOrIndex] : [],
-          enrolledClassIds: ['class-2k28-science-em'],
-          assignedClassIds: assignedRole === 'teacher' || assignedRole === 'admin' ? ['class-2k28-science-em'] : [],
+          enrolledClassIds: [],
+          assignedClassIds: [],
           bio: bioText,
           createdAt: new Date().toISOString(),
         };
@@ -634,6 +671,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
         try {
           await setDoc(doc(db, 'userProfiles', profile.userId), sanitizeFirestoreDoc(profile), { merge: true });
+          if (assignedRole === 'student') {
+            await setDoc(
+              doc(db, 'students', profile.userId),
+              {
+                userId: profile.userId,
+                fullName: profile.fullName,
+                email: cleanEmail,
+                indexNumber: studentIndex,
+                stream: extra?.stream || '2k28 Science EM',
+                enrolledAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
         } catch (dbErr) {
           console.warn('Failed to save profile to Firestore userProfiles:', dbErr);
         }

@@ -203,7 +203,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. M. N. M. Jaasim"
+                  placeholder="e.g. Mohamed Rizwan"
                   className="w-full rounded-xl border border-stone-200 bg-stone-50 p-2.5 text-stone-800 focus:bg-white focus:outline-none"
                 />
               </div>
@@ -327,6 +327,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         + {tag}
                       </button>
                     ))}
+                  </div>
+
+                  <div className="mt-3 p-3 rounded-xl bg-sky-50 border border-sky-200 text-[11px] text-sky-900 flex items-start gap-2">
+                    <span className="text-base leading-none">🎓</span>
+                    <div>
+                      <p className="font-bold text-sky-950">Official Student Index Allocation</p>
+                      <p className="text-sky-800 text-[10px] mt-0.5">
+                        A unique 7-digit student index number (e.g. 2860004) will automatically be allocated for your account and will be viewable on your home page and student pass.
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}

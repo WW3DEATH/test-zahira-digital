@@ -101,7 +101,7 @@ export async function syncGoogleCalendarToFirestore(
       endDate: endDateStr,
       time: timeStr,
       type: inferEventType(item.summary, item.description),
-      classId: 'class-2k28-science-em',
+      classId: 'general',
       location: item.location || 'Zahira College',
       createdBy: userId,
       createdByName: userName,

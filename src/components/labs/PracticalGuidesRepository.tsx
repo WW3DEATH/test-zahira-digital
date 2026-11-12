@@ -14,8 +14,10 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Eye,
 } from 'lucide-react';
 import { PRACTICAL_GUIDES, PracticalGuide } from '../../data/practicalGuidesData';
+import { PDFPreviewModal, PDFPreviewData } from '../common/PDFPreviewModal';
 
 interface PracticalGuidesRepositoryProps {
   onOpenChecklist: (guideId: string) => void;
@@ -26,6 +28,8 @@ export const PracticalGuidesRepository: React.FC<PracticalGuidesRepositoryProps>
   const [selectedDiscipline, setSelectedDiscipline] = useState<'all' | 'bio' | 'physics' | 'maths' | 'chemistry'>('all');
   const [expandedGuideId, setExpandedGuideId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<PDFPreviewData | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Filter guides
   const filteredGuides = PRACTICAL_GUIDES.filter((guide) => {
@@ -41,209 +45,234 @@ export const PracticalGuidesRepository: React.FC<PracticalGuidesRepositoryProps>
     return matchesDiscipline && matchesSearch;
   });
 
-  // Export Standard Official Experiment Guide PDF
+  // Build Standard Official Experiment Guide jsPDF instance
+  const generateGuidePDF = (guide: PracticalGuide): jsPDF => {
+    const doc = new jsPDF();
+
+    // Header: Official Zahira College Identity
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('G.C.E. ADVANCED LEVEL OFFICIAL PRACTICAL EXPERIMENT GUIDE & MANUAL', 20, 26);
+    doc.text(`Academic Discipline: ${guide.subjectName} • ${guide.stream}`, 20, 31);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, 35, 190, 35);
+
+    // Metadata Banner
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(20, 39, 170, 16, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Syllabus Code: ${guide.code}`, 24, 45);
+    doc.text(`Syllabus Unit: ${guide.syllabusUnit}`, 24, 51);
+    doc.text(`Recommended Duration: ${guide.duration}`, 125, 45);
+    doc.text('A/L 2028 Batch Curriculum', 125, 51);
+
+    // Experiment Title
+    doc.setFillColor(238, 242, 255);
+    doc.roundedRect(20, 59, 170, 10, 1.5, 1.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(67, 56, 202);
+    doc.text(`Title: ${guide.title}`, 24, 65.5);
+
+    let y = 77;
+
+    // 1. Aim
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('1. Practical Aim & Objectives', 20, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const aimLines = doc.splitTextToSize(guide.aim, 170);
+    doc.text(aimLines, 20, y);
+    y += aimLines.length * 4.5 + 4;
+
+    // 2. Learning Competencies
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('2. Key Learning Competencies', 20, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    guide.learningCompetencies.forEach((comp) => {
+      const compLines = doc.splitTextToSize(`• ${comp}`, 168);
+      doc.text(compLines, 22, y);
+      y += compLines.length * 4.2;
+    });
+    y += 4;
+
+    // 3. Apparatus, Materials & Reagents
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('3. Required Apparatus & Materials', 20, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    guide.apparatus.forEach((app) => {
+      const appLines = doc.splitTextToSize(`- ${app}`, 168);
+      doc.text(appLines, 22, y);
+      y += appLines.length * 4.2;
+    });
+    y += 4;
+
+    // 4. Safety Warnings & Precautions
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(185, 28, 28); // red
+    doc.text('4. Safety Protocols & Precautions', 20, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(153, 27, 27);
+    guide.safetyPrecautions.forEach((safe) => {
+      const safeLines = doc.splitTextToSize(`! ${safe}`, 168);
+      doc.text(safeLines, 22, y);
+      y += safeLines.length * 4.2;
+    });
+    y += 6;
+
+    // Page break check before procedure
+    if (y > 220) {
+      doc.addPage();
+      y = 25;
+    }
+
+    // 5. Theoretical Background & Key Formulas
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('5. Theoretical Principle & Formulations', 20, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    const theoryLines = doc.splitTextToSize(guide.theoreticalBackground, 170);
+    doc.text(theoryLines, 20, y);
+    y += theoryLines.length * 4.2 + 3;
+
+    guide.keyFormulas.forEach((formula) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 64, 175);
+      doc.text(`  [Formula] ${formula}`, 22, y);
+      y += 4.5;
+    });
+    y += 4;
+
+    // Page break check before procedure steps
+    if (y > 200) {
+      doc.addPage();
+      y = 25;
+    }
+
+    // 6. Step-by-Step Laboratory Protocol
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('6. Step-by-Step Laboratory Protocol', 20, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    guide.procedureSteps.forEach((step, idx) => {
+      const stepLines = doc.splitTextToSize(`${idx + 1}. ${step}`, 168);
+      doc.text(stepLines, 22, y);
+      y += stepLines.length * 4.2 + 1;
+      if (y > 270) {
+        doc.addPage();
+        y = 25;
+      }
+    });
+    y += 4;
+
+    // Page break for observation table and certification
+    if (y > 220) {
+      doc.addPage();
+      y = 25;
+    }
+
+    // 7. Observation Template Columns
+    doc.setFillColor(241, 245, 249);
+    doc.rect(20, y, 170, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text('7. OBSERVATION TABLE & DATA LOGGING TEMPLATE', 24, y + 4.8);
+    y += 11;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Table Headers: ${guide.observationColumns.join('  |  ')}`,
+      20,
+      y
+    );
+    y += 14;
+
+    // End of Guide Certification Block
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, y, 190, y);
+    y += 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Official Practical Manual Certified by Academic Administration:', 20, y);
+
+    y += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Zahira College Mawanella Science Project management', 20, y);
+
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Faculty Authorized • G.C.E. Advanced Level Science Curriculum Repository', 20, y);
+
+    return doc;
+  };
+
+  // Preview Practical Experiment Guide PDF in interactive modal
+  const handlePreviewGuidePDF = (guide: PracticalGuide) => {
+    try {
+      const doc = generateGuidePDF(guide);
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewData({
+        title: `${guide.code}: ${guide.title}`,
+        filename: `Zahira_Practical_Guide_${guide.code}.pdf`,
+        blobUrl,
+        blob,
+        category: guide.subjectName,
+      });
+      setIsPreviewOpen(true);
+    } catch (e) {
+      console.error('Failed to preview guide PDF:', e);
+    }
+  };
+
+  // Download Standard Official Experiment Guide PDF directly
   const handleDownloadGuidePDF = (guide: PracticalGuide) => {
     setDownloadingId(guide.id);
     try {
-      const doc = new jsPDF();
-
-      // Header: Official Zahira College Identity
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.setTextColor(15, 23, 42);
-      doc.text('ZAHIRA COLLEGE MAWANELLA • 2K28 SCIENCE EM', 20, 20);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text('G.C.E. ADVANCED LEVEL OFFICIAL PRACTICAL EXPERIMENT GUIDE & MANUAL', 20, 26);
-      doc.text(`Academic Discipline: ${guide.subjectName} • ${guide.stream}`, 20, 31);
-
-      doc.setDrawColor(203, 213, 225);
-      doc.line(20, 35, 190, 35);
-
-      // Metadata Banner
-      doc.setFillColor(241, 245, 249);
-      doc.roundedRect(20, 39, 170, 16, 2, 2, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(30, 41, 59);
-      doc.text(`Syllabus Code: ${guide.code}`, 24, 45);
-      doc.text(`Syllabus Unit: ${guide.syllabusUnit}`, 24, 51);
-      doc.text(`Recommended Duration: ${guide.duration}`, 125, 45);
-      doc.text('A/L 2028 Batch Curriculum', 125, 51);
-
-      // Experiment Title
-      doc.setFillColor(238, 242, 255);
-      doc.roundedRect(20, 59, 170, 10, 1.5, 1.5, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.setTextColor(67, 56, 202);
-      doc.text(`Title: ${guide.title}`, 24, 65.5);
-
-      let y = 77;
-
-      // 1. Aim
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('1. Practical Aim & Objectives', 20, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(51, 65, 85);
-      const aimLines = doc.splitTextToSize(guide.aim, 170);
-      doc.text(aimLines, 20, y);
-      y += aimLines.length * 4.5 + 4;
-
-      // 2. Learning Competencies
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('2. Key Learning Competencies', 20, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      guide.learningCompetencies.forEach((comp) => {
-        const compLines = doc.splitTextToSize(`• ${comp}`, 168);
-        doc.text(compLines, 22, y);
-        y += compLines.length * 4.2;
-      });
-      y += 4;
-
-      // 3. Apparatus, Materials & Reagents
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('3. Required Apparatus & Materials', 20, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(51, 65, 85);
-      guide.apparatus.forEach((app) => {
-        const appLines = doc.splitTextToSize(`- ${app}`, 168);
-        doc.text(appLines, 22, y);
-        y += appLines.length * 4.2;
-      });
-      y += 4;
-
-      // 4. Safety Warnings & Precautions
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(185, 28, 28); // red
-      doc.text('4. Safety Protocols & Precautions', 20, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(153, 27, 27);
-      guide.safetyPrecautions.forEach((safe) => {
-        const safeLines = doc.splitTextToSize(`! ${safe}`, 168);
-        doc.text(safeLines, 22, y);
-        y += safeLines.length * 4.2;
-      });
-      y += 6;
-
-      // Page break check before procedure
-      if (y > 220) {
-        doc.addPage();
-        y = 25;
-      }
-
-      // 5. Theoretical Background & Key Formulas
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('5. Theoretical Principle & Formulations', 20, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(51, 65, 85);
-      const theoryLines = doc.splitTextToSize(guide.theoreticalBackground, 170);
-      doc.text(theoryLines, 20, y);
-      y += theoryLines.length * 4.2 + 3;
-
-      guide.keyFormulas.forEach((formula) => {
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(30, 64, 175);
-        doc.text(`  [Formula] ${formula}`, 22, y);
-        y += 4.5;
-      });
-      y += 4;
-
-      // Page break check before procedure steps
-      if (y > 200) {
-        doc.addPage();
-        y = 25;
-      }
-
-      // 6. Step-by-Step Laboratory Protocol
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('6. Step-by-Step Laboratory Protocol', 20, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(51, 65, 85);
-      guide.procedureSteps.forEach((step, idx) => {
-        const stepLines = doc.splitTextToSize(`${idx + 1}. ${step}`, 168);
-        doc.text(stepLines, 22, y);
-        y += stepLines.length * 4.2 + 1;
-        if (y > 270) {
-          doc.addPage();
-          y = 25;
-        }
-      });
-      y += 4;
-
-      // Page break for observation table and certification
-      if (y > 220) {
-        doc.addPage();
-        y = 25;
-      }
-
-      // 7. Observation Template Columns
-      doc.setFillColor(241, 245, 249);
-      doc.rect(20, y, 170, 7, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(30, 41, 59);
-      doc.text('7. OBSERVATION TABLE & DATA LOGGING TEMPLATE', 24, y + 4.8);
-      y += 11;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text(
-        `Table Headers: ${guide.observationColumns.join('  |  ')}`,
-        20,
-        y
-      );
-      y += 14;
-
-      // End of Guide Certification Block
-      doc.setDrawColor(226, 232, 240);
-      doc.line(20, y, 190, y);
-      y += 8;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Official Practical Manual Certified by Academic Administration:', 20, y);
-
-      y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Zahira College Mawanella Science Project management', 20, y);
-
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Faculty Authorized • G.C.E. Advanced Level Science Curriculum Repository', 20, y);
-
+      const doc = generateGuidePDF(guide);
       doc.save(`Zahira_Practical_Guide_${guide.code}.pdf`);
     } catch (e) {
       console.error('Failed to export guide PDF:', e);
@@ -396,6 +425,15 @@ export const PracticalGuidesRepository: React.FC<PracticalGuidesRepositoryProps>
                   </button>
 
                   <button
+                    onClick={() => handlePreviewGuidePDF(guide)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-bold transition-all shadow-xs"
+                    title="Preview Official Practical Experiment Guide PDF"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>Preview</span>
+                  </button>
+
+                  <button
                     onClick={() => handleDownloadGuidePDF(guide)}
                     disabled={downloadingId === guide.id}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs"
@@ -410,6 +448,13 @@ export const PracticalGuidesRepository: React.FC<PracticalGuidesRepositoryProps>
           );
         })}
       </div>
+
+      {/* In-App Live PDF Preview Modal */}
+      <PDFPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        pdfData={previewData}
+      />
     </div>
   );
 };

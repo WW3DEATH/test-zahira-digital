@@ -58,7 +58,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         onSnapshot(collection(db, 'classes'), (snap) => {
           const list: SchoolClass[] = [];
           snap.forEach((d) => list.push(d.data() as SchoolClass));
-          setClasses(list.length > 0 ? list : SEED_CLASSES);
+          setClasses(list);
         })
       );
 
@@ -78,12 +78,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             list.push({ ...u, userId: u.userId || d.id });
           });
           if (list.length > 0) {
-            if (!list.some((u) => u.email?.toLowerCase() === 'mnmjaasim@gmail.com')) {
+            if (!list.some((u) => u.email?.toLowerCase() === REAL_ADMIN_PROFILE.email.toLowerCase())) {
               list.unshift(REAL_ADMIN_PROFILE);
             }
             setProfiles(list);
           } else {
-            setProfiles([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+            setProfiles([REAL_ADMIN_PROFILE]);
           }
         })
       );
@@ -101,9 +101,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       );
     } catch (e) {
       console.warn('Real-time sync fallback:', e);
-      setClasses(SEED_CLASSES);
+      setClasses([]);
       setSubjects(SEED_SUBJECTS);
-      setProfiles([REAL_ADMIN_PROFILE, ...SEED_INITIAL_USERS]);
+      setProfiles([REAL_ADMIN_PROFILE]);
       setAnnouncements(SEED_ANNOUNCEMENTS);
     } finally {
       setLoading(false);
@@ -117,7 +117,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   // Bulk Action Module State
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [bulkRole, setBulkRole] = useState<UserRole>('student');
-  const [bulkClassId, setBulkClassId] = useState<string>('class-2k28-science-em');
+  const [bulkClassId, setBulkClassId] = useState<string>('');
   const [userRoleFilter, setUserRoleFilter] = useState<string>('all');
   const [userSearchQuery, setUserSearchQuery] = useState<string>('');
   const [bulkUpdating, setBulkUpdating] = useState<boolean>(false);
@@ -263,7 +263,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               className="inline-flex items-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md hover:shadow-lg"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Master Admin Panel (Edit Website)</span>
+              <span>Faculty Management Console (Edit Website)</span>
             </button>
             <button
               onClick={() => onNavigate('labs')}
@@ -535,7 +535,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                   <option value="student">Student</option>
                   <option value="teacher">Teacher / Faculty</option>
                   <option value="parent">Parent / Guardian</option>
-                  <option value="admin">Administrator</option>
+                  <option value="admin">Faculty Directorate</option>
                 </select>
                 <button
                   onClick={handleBulkUpdateRoles}
@@ -585,7 +585,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                     : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
                 }`}
               >
-                {role === 'all' ? 'All Roles' : `${role}s`}
+                {role === 'all' ? 'All Roles' : role === 'admin' ? 'Faculty Directorate' : `${role}s`}
               </button>
             ))}
           </div>
@@ -713,7 +713,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                             <option value="student">Student</option>
                             <option value="teacher">Teacher</option>
                             <option value="parent">Parent</option>
-                            <option value="admin">Admin</option>
+                            <option value="admin">Faculty Directorate</option>
                           </select>
                         </td>
                       </tr>

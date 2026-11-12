@@ -8,8 +8,9 @@ import {
   X,
   School,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
-import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { SchoolClass, UserProfile } from '../types';
@@ -17,10 +18,15 @@ import { SEED_CLASSES } from '../services/dataService';
 
 export const ClassesPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
-  const [classes, setClasses] = useState<SchoolClass[]>(SEED_CLASSES);
-  const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(SEED_CLASSES[0]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(null);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Class Delete Confirmation Modal State
+  const [classToDelete, setClassToDelete] = useState<SchoolClass | null>(null);
+  const [isDeletingClass, setIsDeletingClass] = useState(false);
+  const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
 
   // Add Class Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -37,21 +43,20 @@ export const ClassesPage: React.FC = () => {
       (snap) => {
         const list: SchoolClass[] = [];
         snap.forEach((d) => list.push(d.data() as SchoolClass));
+        setClasses(list);
         if (list.length > 0) {
-          setClasses(list);
           if (!selectedClass || !list.some((c) => c.id === selectedClass.id)) {
             setSelectedClass(list[0]);
           }
         } else {
-          setClasses(SEED_CLASSES);
-          setSelectedClass(SEED_CLASSES[0]);
+          setSelectedClass(null);
         }
         setLoading(false);
       },
       (error) => {
         console.warn('Real-time classes error:', error);
-        setClasses(SEED_CLASSES);
-        setSelectedClass(SEED_CLASSES[0]);
+        setClasses([]);
+        setSelectedClass(null);
         setLoading(false);
       }
     );
@@ -68,18 +73,20 @@ export const ClassesPage: React.FC = () => {
     return () => unsub();
   }, []);
 
+  const canManageClasses = activeRole === 'admin' || activeRole === 'teacher';
+
   const handleAddClass = async () => {
     if (!newName.trim()) return;
     try {
       const id = `class-${Date.now()}`;
       const newClass: SchoolClass = {
         id,
-        name: newName,
-        grade: newGrade,
-        academicYear: newYear,
-        description: newDesc,
-        room: newRoom,
-        teacherIds: [userProfile?.userId || 'admin_jaasim'],
+        name: newName.trim(),
+        grade: newGrade.trim(),
+        academicYear: newYear.trim(),
+        description: newDesc.trim() || 'Zahira College Science Cohort',
+        room: newRoom.trim() || 'Science Complex - Hall 28',
+        teacherIds: [userProfile?.userId || 'faculty_lead'],
         studentIds: [],
         subjectIds: ['sub-cmath', 'sub-phys', 'sub-chem', 'sub-bio', 'sub-ict', 'sub-eng'],
         createdAt: new Date().toISOString(),
@@ -89,13 +96,45 @@ export const ClassesPage: React.FC = () => {
       setShowAddModal(false);
       setNewName('');
       setNewDesc('');
-    } catch (e) {
+      setSelectedClass(newClass);
+      setFeedbackNotice(`Created class cohort "${newClass.name}".`);
+      setTimeout(() => setFeedbackNotice(null), 3000);
+    } catch (e: any) {
       console.error('Failed to add class:', e);
+      setFeedbackNotice(`Error adding class: ${e.message}`);
+      setTimeout(() => setFeedbackNotice(null), 4000);
+    }
+  };
+
+  const confirmDeleteClass = async () => {
+    if (!classToDelete || !canManageClasses) return;
+    const targetId = classToDelete.id;
+    const targetName = classToDelete.name;
+    setIsDeletingClass(true);
+
+    try {
+      // Optimistically remove from state
+      setClasses((prev) => prev.filter((c) => c.id !== targetId));
+      if (selectedClass?.id === targetId) {
+        const remaining = classes.filter((c) => c.id !== targetId);
+        setSelectedClass(remaining.length > 0 ? remaining[0] : null);
+      }
+      // Delete from Firebase Firestore
+      await deleteDoc(doc(db, 'classes', targetId));
+      setClassToDelete(null);
+      setFeedbackNotice(`Class cohort "${targetName}" permanently removed.`);
+      setTimeout(() => setFeedbackNotice(null), 3500);
+    } catch (e: any) {
+      console.error('Failed to remove class:', e);
+      setFeedbackNotice(`Error removing class: ${e.message}`);
+      setTimeout(() => setFeedbackNotice(null), 4000);
+    } finally {
+      setIsDeletingClass(false);
     }
   };
 
   const studentUsers = allUsers.filter((u) => u.role === 'student');
-  const teacherUsers = allUsers.filter((u) => u.role === 'teacher' || u.role === 'admin');
+  const teacherUsers = allUsers.filter((u) => u.role === 'teacher');
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -109,10 +148,10 @@ export const ClassesPage: React.FC = () => {
           </p>
         </div>
 
-        {activeRole === 'admin' && (
+        {canManageClasses && (
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-xs font-bold text-stone-950 transition-all shadow-md shrink-0"
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Create Academic Class</span>
@@ -134,7 +173,7 @@ export const ClassesPage: React.FC = () => {
                 onClick={() => setSelectedClass(c)}
                 className={`p-5 rounded-2xl border cursor-pointer transition-all ${
                   isSelected
-                    ? 'border-amber-400 bg-amber-50/40 shadow-xs'
+                    ? 'border-blue-500 bg-blue-50/40 shadow-xs'
                     : 'border-stone-200 bg-white hover:border-stone-300 hover:shadow-2xs'
                 }`}
               >
@@ -146,7 +185,22 @@ export const ClassesPage: React.FC = () => {
                     <h4 className="font-serif text-base font-bold text-stone-900">{c.name}</h4>
                     <p className="text-xs text-stone-500 mt-0.5">{c.room}</p>
                   </div>
-                  <GraduationCap className={`w-5 h-5 ${isSelected ? 'text-amber-600' : 'text-stone-400'}`} />
+                  <div className="flex items-center gap-2">
+                    {canManageClasses && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setClassToDelete(c);
+                        }}
+                        className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        title={`Remove ${c.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    <GraduationCap className={`w-5 h-5 ${isSelected ? 'text-blue-600' : 'text-stone-400'}`} />
+                  </div>
                 </div>
                 <div className="mt-4 flex items-center justify-between text-[11px] text-stone-500 pt-3 border-t border-stone-100">
                   <span>Year: {c.academicYear}</span>
@@ -155,10 +209,20 @@ export const ClassesPage: React.FC = () => {
               </div>
             );
           })}
+
+          {classes.length === 0 && (
+            <div className="p-8 rounded-2xl border border-dashed border-stone-200 bg-white text-center text-xs text-stone-500 space-y-2">
+              <GraduationCap className="w-8 h-8 text-stone-300 mx-auto" />
+              <p className="font-semibold text-stone-700">No active class cohorts found.</p>
+              <p className="text-[11px] text-stone-400">
+                {canManageClasses ? 'Click "Create Academic Class" above to set up a new cohort.' : 'Classes will appear here once created by faculty.'}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Selected Class Detail */}
-        {selectedClass && (
+        {selectedClass ? (
           <div className="lg:col-span-2 rounded-2xl border border-stone-200 bg-white p-6 shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-100">
               <div>
@@ -170,9 +234,21 @@ export const ClassesPage: React.FC = () => {
                 </h3>
                 <p className="text-xs text-stone-500 mt-1">{selectedClass.description}</p>
               </div>
-              <div className="text-right">
-                <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider block">Room Location</span>
-                <span className="text-sm font-bold text-stone-800">{selectedClass.room}</span>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider block">Room Location</span>
+                  <span className="text-sm font-bold text-stone-800">{selectedClass.room}</span>
+                </div>
+                {canManageClasses && (
+                  <button
+                    type="button"
+                    onClick={() => setClassToDelete(selectedClass)}
+                    className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors shadow-2xs"
+                    title={`Delete ${selectedClass.name}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -184,19 +260,26 @@ export const ClassesPage: React.FC = () => {
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {teacherUsers.length > 0 ? (
-                  teacherUsers.map((t) => (
-                    <div key={t.userId} className="flex items-center gap-3 p-3 rounded-xl border border-stone-100 bg-stone-50">
-                      <div className="h-9 w-9 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
-                        {t.fullName ? t.fullName.charAt(0) : 'T'}
+                  teacherUsers.map((t) => {
+                    const cleanName = (t.fullName || 'Faculty Instructor')
+                      .replace(/\s*\(Admin.*?\)/gi, '')
+                      .replace(/M\.\s*N\.\s*M\.\s*Jaasim/gi, 'Science Faculty Lead');
+                    return (
+                      <div key={t.userId} className="flex items-center gap-3 p-3 rounded-xl border border-stone-100 bg-stone-50">
+                        <div className="h-9 w-9 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
+                          {cleanName.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-stone-900">{cleanName}</p>
+                          <p className="text-[10px] text-stone-500">{t.email}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-bold text-stone-900">{t.fullName}</p>
-                        <p className="text-[10px] text-stone-500">{t.email}</p>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
-                  <div className="p-3 text-xs text-stone-500">M. N. M. Jaasim (Admin & Lead)</div>
+                  <div className="p-3 text-xs text-stone-600 font-semibold bg-stone-50 rounded-xl border border-stone-100">
+                    Faculty Lead • Science & Combined Mathematics Department
+                  </div>
                 )}
               </div>
             </div>
@@ -227,6 +310,16 @@ export const ClassesPage: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        ) : (
+          <div className="lg:col-span-2 rounded-2xl border border-dashed border-stone-200 bg-white p-12 text-center flex flex-col items-center justify-center text-xs text-stone-500">
+            <GraduationCap className="w-12 h-12 text-stone-300 mb-3" />
+            <h4 className="font-serif text-base font-bold text-stone-800">No Class Selected</h4>
+            <p className="text-stone-500 mt-1 max-w-sm leading-relaxed">
+              {classes.length > 0
+                ? 'Select a class cohort from the list on the left to view detailed rosters, faculty instructors, and syllabi.'
+                : 'No classes currently registered. Use the "Create Academic Class" button above to add a new cohort.'}
+            </p>
           </div>
         )}
       </div>
@@ -325,6 +418,54 @@ export const ClassesPage: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* In-App Deletion Confirmation Modal (Reliable in IFrames) */}
+      {classToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-2xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-stone-900">Remove Class Cohort?</h3>
+                <p className="text-[11px] text-stone-500">Authorized Action (Faculty & Directorate)</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Are you sure you want to permanently remove <strong className="text-stone-900">"{classToDelete.name}"</strong> ({classToDelete.grade})? This will delete the cohort from Firebase Firestore and unassign all enrolled schedules.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100">
+              <button
+                type="button"
+                disabled={isDeletingClass}
+                onClick={() => setClassToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-xs font-semibold text-stone-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingClass}
+                onClick={confirmDeleteClass}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-xs font-bold text-white transition-colors shadow-sm"
+              >
+                {isDeletingClass ? 'Removing...' : 'Yes, Delete Cohort'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating feedback toast */}
+      {feedbackNotice && (
+        <div className="fixed bottom-6 right-6 z-50 bg-stone-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-stone-700 animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{feedbackNotice}</span>
         </div>
       )}
     </div>

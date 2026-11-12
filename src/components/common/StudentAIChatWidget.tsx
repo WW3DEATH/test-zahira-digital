@@ -211,39 +211,39 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
         {
           day: 'Monday',
           periods: [
-            { time: '08:00 - 09:30', subject: 'Combined Mathematics (Pure Maths - Calculus)', teacher: 'Mr. M. N. M. Jaasim', room: 'Hall Sci-1' },
-            { time: '09:45 - 11:15', subject: 'Physics (Mechanics & Vectors)', teacher: 'Dr. A. H. Farook', room: 'Physics Lab' },
-            { time: '11:30 - 13:00', subject: 'Chemistry (Physical Chemistry)', teacher: 'Mrs. S. Rizwan', room: 'Chemistry Lab' },
+            { time: '08:00 - 09:30', subject: 'Combined Mathematics (Pure Maths - Calculus)', teacher: 'Dr. A. Kareem', room: 'Hall Sci-1' },
+            { time: '09:45 - 11:15', subject: 'Physics (Mechanics & Vectors)', teacher: 'Mrs. F. Nusrath', room: 'Physics Lab' },
+            { time: '11:30 - 13:00', subject: 'Chemistry (Physical Chemistry)', teacher: 'Mr. M. S. Farook', room: 'Chemistry Lab' },
           ],
         },
         {
           day: 'Tuesday',
           periods: [
-            { time: '08:00 - 09:30', subject: 'Chemistry (Inorganic Chemistry & Periodic Table)', teacher: 'Mrs. S. Rizwan', room: 'Room 204' },
-            { time: '09:45 - 11:15', subject: 'Combined Mathematics (Applied Maths - Statics)', teacher: 'Mr. M. N. M. Jaasim', room: 'Hall Sci-1' },
+            { time: '08:00 - 09:30', subject: 'Chemistry (Inorganic Chemistry & Periodic Table)', teacher: 'Mr. M. S. Farook', room: 'Room 204' },
+            { time: '09:45 - 11:15', subject: 'Combined Mathematics (Applied Maths - Statics)', teacher: 'Dr. A. Kareem', room: 'Hall Sci-1' },
             { time: '11:30 - 13:00', subject: 'ICT / General English', teacher: 'Eng. K. Perera', room: 'Computer Lab' },
           ],
         },
         {
           day: 'Wednesday',
           periods: [
-            { time: '08:00 - 09:30', subject: 'Physics (Waves, Oscillations & Sound)', teacher: 'Dr. A. H. Farook', room: 'Physics Lab' },
-            { time: '09:45 - 11:15', subject: 'Combined Mathematics (Calculus Problem Solving)', teacher: 'Mr. M. N. M. Jaasim', room: 'Hall Sci-1' },
-            { time: '11:30 - 13:00', subject: 'Chemistry Laboratory Practical', teacher: 'Mrs. S. Rizwan', room: 'Chemistry Lab' },
+            { time: '08:00 - 09:30', subject: 'Physics (Waves, Oscillations & Sound)', teacher: 'Mrs. F. Nusrath', room: 'Physics Lab' },
+            { time: '09:45 - 11:15', subject: 'Combined Mathematics (Calculus Problem Solving)', teacher: 'Dr. A. Kareem', room: 'Hall Sci-1' },
+            { time: '11:30 - 13:00', subject: 'Chemistry Laboratory Practical', teacher: 'Mr. M. S. Farook', room: 'Chemistry Lab' },
           ],
         },
         {
           day: 'Thursday',
           periods: [
-            { time: '08:00 - 09:30', subject: 'Physics Experimental Lab Practical', teacher: 'Dr. A. H. Farook', room: 'Physics Lab' },
-            { time: '09:45 - 11:15', subject: 'Combined Mathematics (Trigonometry & Complex Numbers)', teacher: 'Mr. M. N. M. Jaasim', room: 'Hall Sci-1' },
-            { time: '11:30 - 13:00', subject: 'Biology / General Science', teacher: 'Dr. M. Rifaz', room: 'Bio Hall' },
+            { time: '08:00 - 09:30', subject: 'Physics Experimental Lab Practical', teacher: 'Mrs. F. Nusrath', room: 'Physics Lab' },
+            { time: '09:45 - 11:15', subject: 'Combined Mathematics (Trigonometry & Complex Numbers)', teacher: 'Dr. A. Kareem', room: 'Hall Sci-1' },
+            { time: '11:30 - 13:00', subject: 'Biology / General Science', teacher: 'Mrs. S. Zulaiha', room: 'Bio Hall' },
           ],
         },
         {
           day: 'Friday',
           periods: [
-            { time: '08:00 - 09:30', subject: 'Combined Mathematics (Advanced Problem Seminar)', teacher: 'Mr. M. N. M. Jaasim', room: 'Auditorium' },
+            { time: '08:00 - 09:30', subject: 'Combined Mathematics (Advanced Problem Seminar)', teacher: 'Dr. A. Kareem', room: 'Auditorium' },
             { time: '09:45 - 11:00', subject: 'Weekly Model Exam Evaluation & Science Quiz', teacher: 'Faculty Panel', room: 'Auditorium' },
           ],
         },
