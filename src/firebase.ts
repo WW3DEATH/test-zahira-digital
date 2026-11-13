@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, getFirestore, setLogLevel } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, setLogLevel, doc, getDocFromServer, type Firestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Silence non-fatal backend connection/offline warnings
@@ -9,7 +9,7 @@ setLogLevel('error');
 const app = initializeApp(firebaseConfig);
 const customDbId = (firebaseConfig as any).firestoreDatabaseId;
 
-let firestoreDb;
+let firestoreDb: Firestore;
 try {
   firestoreDb = initializeFirestore(
     app,
@@ -24,6 +24,17 @@ try {
     ? getFirestore(app, customDbId)
     : getFirestore(app);
 }
+
+async function testFirestoreConnection() {
+  try {
+    await getDocFromServer(doc(firestoreDb, 'schoolSettings', 'main-settings'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+testFirestoreConnection();
 
 /**
  * Recursively strips undefined values from an object or array so Firestore operations never reject data with "Unsupported field value: undefined".

@@ -18,6 +18,9 @@ import {
   Equal,
   RotateCcw,
   Sigma,
+  KeyRound,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import * as math from 'mathjs';
 import { collection, onSnapshot } from 'firebase/firestore';
@@ -25,6 +28,7 @@ import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment, Submission, SchoolEvent } from '../../types';
 import { SEED_ASSIGNMENTS, SEED_SUBMISSIONS, SEED_SCHOOL_EVENTS } from '../../services/dataService';
+import { AIMarkdownMath } from './AIMarkdownMath';
 
 interface ChatMessage {
   id: string;
@@ -52,6 +56,25 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
   const [mathExpression, setMathExpression] = useState('2 * sin(pi / 6) + sqrt(144)');
   const [mathResult, setMathResult] = useState<string>('');
   const [mathError, setMathError] = useState<string>('');
+
+  // Custom Gemini API Key state (shared across AI chats)
+  const [showApiKeyDrawer, setShowApiKeyDrawer] = useState(false);
+  const [showApiKeyChars, setShowApiKeyChars] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem('znc_custom_gemini_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [apiKeyDraft, setApiKeyDraft] = useState<string>(() => {
+    try {
+      return localStorage.getItem('znc_custom_gemini_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [apiKeySavedMsg, setApiKeySavedMsg] = useState<string | null>(null);
 
   // Real-time school context data
   const [assignments, setAssignments] = useState<Assignment[]>(SEED_ASSIGNMENTS);
@@ -256,10 +279,17 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
           : m.content,
       }));
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const latestKey = (customApiKey || localStorage.getItem('znc_custom_gemini_api_key') || '').trim();
+      if (latestKey) {
+        headers['x-gemini-api-key'] = latestKey;
+      }
+
       const response = await fetch('/api/gemini/student-assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
+          apiKey: latestKey || undefined,
           messages: conversationHistory,
           studentContext: {
             studentName: userProfile?.fullName || 'Scholar',
@@ -315,6 +345,21 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
     ]);
   };
 
+  const handleSaveCustomApiKey = () => {
+    const trimmed = apiKeyDraft.trim();
+    setCustomApiKey(trimmed);
+    try {
+      if (trimmed) {
+        localStorage.setItem('znc_custom_gemini_api_key', trimmed);
+        setApiKeySavedMsg('Gemini API key saved!');
+      } else {
+        localStorage.removeItem('znc_custom_gemini_api_key');
+        setApiKeySavedMsg('Custom API key cleared.');
+      }
+    } catch {}
+    setTimeout(() => setApiKeySavedMsg(null), 2500);
+  };
+
   const handleInsertMathToChat = () => {
     if (!mathResult) return;
     const promptText = `Verify and explain this calculation step-by-step: ${mathExpression} = ${mathResult}`;
@@ -330,10 +375,10 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
   ];
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 print:hidden font-sans">
+    <div className="fixed bottom-16 md:bottom-6 right-3 sm:right-6 z-50 print:hidden font-sans">
       {/* 1. EXPANDED CHAT WINDOW */}
       {isOpen && (
-        <div className="mb-3 w-[350px] sm:w-[420px] h-[580px] max-h-[85vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-blue-200/80 dark:border-slate-800 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200">
+        <div className="mb-3 w-[calc(100vw-1.5rem)] sm:w-[420px] h-[min(540px,calc(100dvh-9.5rem))] sm:h-[580px] sm:max-h-[85vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-blue-200/80 dark:border-slate-800 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200">
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 p-4 text-white flex items-center justify-between shadow-md">
             <div className="flex items-center gap-3">
@@ -359,9 +404,29 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
             </div>
 
             <div className="flex items-center gap-1">
+              {/* Custom Gemini API Key Toggle Button */}
+              <button
+                onClick={() => {
+                  setShowApiKeyDrawer(!showApiKeyDrawer);
+                  if (!showApiKeyDrawer) setShowMathPanel(false);
+                }}
+                className={`rounded-lg p-1.5 transition-colors flex items-center gap-1 text-xs font-bold ${
+                  showApiKeyDrawer || customApiKey
+                    ? 'bg-emerald-500 text-white shadow-xs'
+                    : 'text-blue-200 hover:text-white hover:bg-white/10'
+                }`}
+                title="Insert Custom Gemini API Key"
+              >
+                <KeyRound className="w-4 h-4" />
+                <span className="hidden sm:inline text-[10px]">{customApiKey ? 'Key Set' : 'API Key'}</span>
+              </button>
+
               {/* Math.js Toggle Button */}
               <button
-                onClick={() => setShowMathPanel(!showMathPanel)}
+                onClick={() => {
+                  setShowMathPanel(!showMathPanel);
+                  if (!showMathPanel) setShowApiKeyDrawer(false);
+                }}
                 className={`rounded-lg p-1.5 transition-colors flex items-center gap-1 text-xs font-bold ${
                   showMathPanel
                     ? 'bg-amber-400 text-slate-950 shadow-xs'
@@ -389,6 +454,64 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
               </button>
             </div>
           </div>
+
+          {/* CUSTOM GEMINI API KEY DRAWER */}
+          {showApiKeyDrawer && (
+            <div className="bg-slate-900 text-white p-3.5 border-b border-blue-950 shadow-inner animate-in slide-in-from-top-2 duration-150">
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="font-bold flex items-center gap-1.5 text-emerald-300">
+                  <KeyRound className="w-4 h-4 text-emerald-400" />
+                  <span>Insert Gemini API Key</span>
+                </span>
+                <span className="text-[10px] text-slate-400">Stored locally in browser</span>
+              </div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showApiKeyChars ? 'text' : 'password'}
+                    value={apiKeyDraft}
+                    onChange={(e) => setApiKeyDraft(e.target.value)}
+                    placeholder="AIza..."
+                    className="w-full rounded-xl bg-slate-800 border border-slate-700 pl-3 pr-8 py-1.5 text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKeyChars(!showApiKeyChars)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  >
+                    {showApiKeyChars ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveCustomApiKey}
+                  className="rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 text-xs font-bold transition-all shrink-0"
+                >
+                  Save
+                </button>
+                {customApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setApiKeyDraft('');
+                      setCustomApiKey('');
+                      try {
+                        localStorage.removeItem('znc_custom_gemini_api_key');
+                      } catch {}
+                      setApiKeySavedMsg('Key cleared.');
+                      setTimeout(() => setApiKeySavedMsg(null), 2000);
+                    }}
+                    className="rounded-xl bg-slate-800 hover:bg-rose-900/60 border border-slate-700 text-rose-300 px-2.5 py-1.5 text-xs font-semibold shrink-0"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {apiKeySavedMsg && (
+                <p className="mt-1.5 text-[11px] text-emerald-300 font-semibold">{apiKeySavedMsg}</p>
+              )}
+            </div>
+          )}
 
           {/* MATH.JS SCIENTIFIC CALCULATOR DRAWER */}
           {showMathPanel && (
@@ -517,13 +640,17 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
                 }`}
               >
                 <div
-                  className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 leading-relaxed shadow-2xs whitespace-pre-line ${
+                  className={`max-w-[92%] sm:max-w-[88%] rounded-2xl px-3.5 py-2.5 leading-relaxed shadow-2xs ${
                     m.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-xs font-medium'
-                      : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700 rounded-bl-xs'
+                      ? 'bg-blue-600 text-white rounded-br-xs font-medium text-xs whitespace-pre-line'
+                      : 'bg-[#1c1d20] text-slate-100 border border-slate-700/80 rounded-bl-xs'
                   }`}
                 >
-                  {m.content}
+                  {m.role === 'user' ? (
+                    m.content
+                  ) : (
+                    <AIMarkdownMath content={m.content} className="text-slate-100 !text-xs sm:!text-[13px]" />
+                  )}
 
                   {/* Math.js Verified Result Card attached to message */}
                   {m.mathCalculation && (

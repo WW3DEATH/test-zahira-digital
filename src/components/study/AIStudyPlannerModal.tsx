@@ -614,7 +614,7 @@ export const AIStudyPlannerModal: React.FC<AIStudyPlannerModalProps> = ({
                             className="inline-flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 px-2.5 py-1 text-[11px] font-semibold transition-colors"
                           >
                             <Lightbulb className="w-3 h-3" />
-                            <span>Ask Socrates AI Tutor</span>
+                            <span>Ask Gemini AI Tutor</span>
                           </button>
                         </div>
                       </div>

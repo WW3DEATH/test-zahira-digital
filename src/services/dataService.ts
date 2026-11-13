@@ -244,7 +244,6 @@ export async function purgeDummyProfilesAndClasses() {
     'student_faris',
     'parent_rifky',
     'admin_jaasim',
-    'admin_jaasim_official',
   ];
   for (const uid of dummyUserIds) {
     try {
@@ -269,6 +268,28 @@ export async function seedInitialDatabaseIfEmpty() {
   try {
     // Purge legacy dummy accounts and classes
     await purgeDummyProfilesAndClasses();
+
+    // Ensure requested administrator account (mnmjaasim@gmail.com) exists in Firestore userProfiles
+    const adminRef = doc(db, 'userProfiles', 'admin_mnmjaasim');
+    const adminSnap = await getDoc(adminRef).catch(() => null);
+    if (!adminSnap || !adminSnap.exists()) {
+      await setDoc(
+        adminRef,
+        {
+          userId: 'admin_mnmjaasim',
+          email: 'mnmjaasim@gmail.com',
+          fullName: 'Science Project Admin',
+          role: 'admin',
+          indexNumber: '2860003',
+          avatarUrl: '',
+          bio: 'Administrator - Zahira College Science Project Management',
+          assignedClassIds: [],
+          enrolledClassIds: [],
+          createdAt: new Date().toISOString(),
+        },
+        { merge: true }
+      ).catch(() => {});
+    }
 
     const settingsSnap = await getDoc(doc(db, 'schoolSettings', 'main-settings'));
     const eventsSnap = await getDocs(collection(db, 'schoolEvents'));

@@ -395,7 +395,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               className="inline-flex items-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-3 text-xs font-bold text-white transition-all shadow-md shrink-0"
             >
               <Lightbulb className="w-4 h-4 text-white" />
-              <span>Socrates AI Tutor</span>
+              <span>Gemini AI Tutor</span>
             </button>
           </div>
         </div>
@@ -601,28 +601,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
 
           {/* Daily vs Weekly Toggle */}
-          <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-800 text-xs shrink-0 self-start md:self-auto">
+          <div className="flex flex-wrap sm:inline-flex rounded-xl border border-slate-200 dark:border-slate-700 p-1 bg-slate-50 dark:bg-slate-800 text-xs shrink-0 w-full sm:w-auto gap-1 sm:gap-0">
             <button
               onClick={() => setCompletionCadence('daily')}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 sm:py-1.5 font-bold transition-all whitespace-nowrap ${
                 completionCadence === 'daily'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <Zap className="w-3.5 h-3.5" />
-              <span>Daily Cadence (Last 8 Days)</span>
+              <Zap className="w-3.5 h-3.5 shrink-0" />
+              <span>Daily (8 Days)</span>
             </button>
             <button
               onClick={() => setCompletionCadence('weekly')}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 sm:py-1.5 font-bold transition-all whitespace-nowrap ${
                 completionCadence === 'weekly'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <BarChart3 className="w-3.5 h-3.5" />
-              <span>Weekly Milestones (Weeks 1-8)</span>
+              <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+              <span>Weekly (W1–W8)</span>
             </button>
           </div>
         </div>
@@ -1290,7 +1290,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div className="space-y-6">
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs">
             <h3 className="font-serif text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">
-              Socrates AI Study Assistant
+              Gemini AI Study Assistant
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
               Get instant step-by-step guidance on G.C.E. A/L Science questions.

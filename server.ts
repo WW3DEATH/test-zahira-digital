@@ -74,6 +74,26 @@ const ai = new GoogleGenAI({
   },
 });
 
+function resolveGeminiConfig(req: express.Request): {
+  customKey: string;
+  activeKey: string;
+  client: GoogleGenAI;
+} {
+  const customKey = ((req.headers['x-gemini-api-key'] as string) || req.body?.apiKey || '').trim();
+  const activeKey = customKey || process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+  const client = customKey
+    ? new GoogleGenAI({
+        apiKey: customKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      })
+    : ai;
+  return { customKey, activeKey, client };
+}
+
 // Helper for timeout racing: guarantees responses return in <3.5 seconds
 function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   let timer: any;
@@ -292,7 +312,11 @@ Tuning Style: ${chosenStyle}
 Your rules:
 1. Provide a direct, thorough, custom response specifically addressing the student's exact question dynamically.
 2. DO NOT use canned or pre-prepared responses. Answer whatever question was asked.
-3. Formulate equations or key formulas cleanly using markdown LaTeX (e.g. $E=mc^2$).
+3. Format all math cleanly using standard Markdown + LaTeX:
+   - Use inline LaTeX "$ ... $" for ratios, variables, symbols, and inline expressions (e.g. "Since $OD : DB = 1 : 2$, the position vector of $D$ is:").
+   - Put key equations, substitutions, aligned steps, and final results on their own centered display lines using "$$ ... $$" (e.g. "$$\\mathbf{d} = OD = \\frac{1}{3}\\mathbf{b}$$" or "$$-6 + 7n = 0 \\implies 7n = 6 \\implies n = \\frac{6}{7}$$").
+   - Never output plain ASCII fractions like 1/3 or raw unicode approximations when proper LaTeX \\frac{1}{3} or \\implies can be used.
+   - Use clean bullet points ("- ") for parallel step breakdowns before each centered equation.
 4. Conclude with a helpful tip or a quick checkpoint question for understanding.
 5. Warm, encouraging, and academically rigorous for Zahira College 2k28 Science EM scholars.`;
 
@@ -392,7 +416,7 @@ The student asked: "${question}"
 Subject: ${subject || 'Science'}
 Academic Context: ${academicContext || 'G.C.E. Advanced Level Science'}
 
-Provide a direct, thorough, step-by-step academic explanation answering their exact question dynamically. Format cleanly with markdown and LaTeX for formulas.`;
+Provide a direct, thorough, step-by-step academic explanation answering their exact question dynamically. Format cleanly with Markdown bullet points ("- ") and LaTeX: use "$ ... $" for inline variables/ratios (e.g. "$OD : DB = 1 : 2$") and "$$ ... $$" on its own line for centered display equations with stacked fractions (\\frac{a}{b}), bold vectors (\\mathbf{d}), and arrows (\\implies).`;
 
         const response = await client.models.generateContent({
           model: 'gemini-3.8-flash',
@@ -464,10 +488,11 @@ Create balanced, high quality questions. Each question must have:
 - difficulty: 'easy' | 'medium' | 'hard'`;
 
     let questions: any[] = [];
+    const { activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
-        const aiPromise = ai.models.generateContent({
+        const aiPromise = client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
@@ -554,6 +579,987 @@ Create balanced, high quality questions. Each question must have:
   }
 });
 
+// Helper: Randomized procedural Science EM MCQ generator (never static repeats)
+function shuffleArray<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function normalizeRequestedSubjects(subjectsInput: unknown, subjectString?: string): string[] {
+  const canonical = ['C.Maths', 'Bio', 'Physics', 'Chemistry', 'ICT'];
+  const mapped = new Set<string>();
+
+  const mapToken = (raw: string) => {
+    const s = raw.trim().toLowerCase();
+    if (!s) return;
+    if (s.includes('math')) mapped.add('C.Maths');
+    if (s.includes('bio')) mapped.add('Bio');
+    if (s.includes('phys')) mapped.add('Physics');
+    if (s.includes('chem')) mapped.add('Chemistry');
+    if (s.includes('ict') || s.includes('comput') || s.includes('inform')) mapped.add('ICT');
+  };
+
+  if (Array.isArray(subjectsInput)) {
+    subjectsInput.forEach((item) => mapToken(String(item || '')));
+  }
+  if (subjectString) {
+    subjectString.split(/[,+&/|]+/).forEach((part) => mapToken(part));
+  }
+
+  return mapped.size > 0 ? Array.from(mapped) : canonical;
+}
+
+function generateFreshProceduralPvPQuestions(
+  subject: string,
+  difficulty: 'easy' | 'medium' | 'hard',
+  count: number,
+  subjectsList?: string[]
+) {
+  const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
+  const activeSubjects = normalizeRequestedSubjects(subjectsList, subject);
+
+  const banks: Record<string, Array<(variantIdx: number) => any>> = {
+    'C.Maths': [
+      () => {
+        const a = randInt(2, 9);
+        const b = randInt(2, 12);
+        const x0 = randInt(1, 5);
+        const deriv = 3 * a * x0 * x0 - b;
+        const distractors = Array.from(new Set([deriv + a, deriv - b, 2 * a * x0 - b, deriv + 6, deriv - 4]))
+          .filter((d) => d !== deriv)
+          .slice(0, 3);
+        const correct = `$${deriv}$`;
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Find the gradient of the curve $y = ${a}x^3 - ${b}x + ${randInt(3, 15)}$ at $x = ${x0}$.`,
+          options: shuffleArray([correct, ...distractors.map((d) => `$${d}$`)]),
+          correctAnswer: correct,
+          explanation: `Differentiating gives $\\frac{dy}{dx} = ${3 * a}x^2 - ${b}$. Substituting $x = ${x0}$ yields $${3 * a}(${x0}^2) - ${b} = ${deriv}$.`,
+        };
+      },
+      () => {
+        const m = randInt(2, 7);
+        const k = randInt(1, 8);
+        const upper = randInt(2, 4);
+        const integralVal = m * upper * upper * upper + k * upper;
+        const distractors = Array.from(new Set([integralVal + 4, integralVal - 3, m * upper * upper + k * upper, integralVal + 9]))
+          .filter((d) => d !== integralVal)
+          .slice(0, 3);
+        const correct = `$${integralVal}$`;
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Evaluate the definite integral $\\int_0^{${upper}} (${3 * m}x^2 + ${k})\\,dx$.`,
+          options: shuffleArray([correct, ...distractors.map((d) => `$${d}$`)]),
+          correctAnswer: correct,
+          explanation: `$\\left[${m}x^3 + ${k}x\\right]_0^{${upper}} = ${m}(${upper}^3) + ${k}(${upper}) = ${integralVal}$.`,
+        };
+      },
+      () => {
+        const p = randInt(2, 9);
+        const q = randInt(2, 9);
+        const sq = p * p + q * q;
+        const correct = `$\\sqrt{${sq}}$`;
+        const distractors = [`$${p + q}$`, `$\\sqrt{${sq + 5}}$`, `$${sq}$`];
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] What is the magnitude $|\\vec{r}|$ of the vector $\\vec{r} = ${p}\\mathbf{i} - ${q}\\mathbf{j}$?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$|\\vec{r}| = \\sqrt{${p}^2 + (-${q})^2} = \\sqrt{${p * p} + ${q * q}} = \\sqrt{${sq}}$.`,
+        };
+      },
+      () => {
+        const r1 = randInt(2, 8);
+        const r2 = randInt(1, 7);
+        const sum = r1 + r2;
+        const prod = r1 * r2;
+        const val = sum * sum - 2 * prod;
+        const correct = `$${val}$`;
+        const distractors = Array.from(new Set([val + 4, sum * sum, Math.abs(val - 5), prod + sum, val + 7]))
+          .filter((d) => d !== val)
+          .slice(0, 3);
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] If $\\alpha$ and $\\beta$ are the roots of $x^2 - ${sum}x + ${prod} = 0$, find $\\alpha^2 + \\beta^2$.`,
+          options: shuffleArray([correct, ...distractors.map((d) => `$${d}$`)]),
+          correctAnswer: correct,
+          explanation: `$\\alpha^2 + \\beta^2 = (\\alpha + \\beta)^2 - 2\\alpha\\beta = ${sum}^2 - 2(${prod}) = ${val}$.`,
+        };
+      },
+      () => {
+        const a = randInt(3, 12);
+        const d = randInt(2, 7);
+        const n = randInt(6, 12);
+        const sumAP = (n / 2) * (2 * a + (n - 1) * d);
+        const correct = `$${sumAP}$`;
+        const distractors = Array.from(new Set([sumAP + d, sumAP - n, a + (n - 1) * d, sumAP + 12]))
+          .filter((x) => x !== sumAP)
+          .slice(0, 3);
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Find the sum of the first $${n}$ terms of an Arithmetic Progression with first term $a = ${a}$ and common difference $d = ${d}$.`,
+          options: shuffleArray([correct, ...distractors.map((v) => `$${v}$`)]),
+          correctAnswer: correct,
+          explanation: `$S_n = \\frac{n}{2}[2a + (n-1)d] = \\frac{${n}}{2}[${2 * a} + ${(n - 1) * d}] = ${sumAP}$.`,
+        };
+      },
+      () => {
+        const a = randInt(1, 6);
+        const b = randInt(1, 6);
+        const c = randInt(1, 6);
+        const d = randInt(1, 6);
+        const e = randInt(1, 5);
+        const f = randInt(1, 5);
+        const dot = a * d + b * e - c * f;
+        const correct = `$${dot}$`;
+        const distractors = Array.from(new Set([dot + 3, dot - 4, a * d + b * e + c * f, dot + 6]))
+          .filter((x) => x !== dot)
+          .slice(0, 3);
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Calculate the scalar dot product $(${a}\\mathbf{i} + ${b}\\mathbf{j} + ${c}\\mathbf{k}) \\cdot (${d}\\mathbf{i} + ${e}\\mathbf{j} - ${f}\\mathbf{k})$.`,
+          options: shuffleArray([correct, ...distractors.map((v) => `$${v}$`)]),
+          correctAnswer: correct,
+          explanation: `Dot product $= (${a})(${d}) + (${b})(${e}) + (${c})(-${f}) = ${dot}$.`,
+        };
+      },
+      () => {
+        const a = randInt(2, 7);
+        const b = randInt(1, 5);
+        const c = randInt(1, 5);
+        const d = randInt(2, 7);
+        const det = a * d - b * c;
+        const correct = `$${det}$`;
+        const distractors = Array.from(new Set([a * d + b * c, det + 2, det - 3, a * c - b * d]))
+          .filter((x) => x !== det)
+          .slice(0, 3);
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Evaluate the determinant $\\det \\begin{pmatrix} ${a} & ${b} \\\\ ${c} & ${d} \\end{pmatrix}$.`,
+          options: shuffleArray([correct, ...distractors.map((v) => `$${v}$`)]),
+          correctAnswer: correct,
+          explanation: `$\\det = (${a})(${d}) - (${b})(${c}) = ${a * d} - ${b * c} = ${det}$.`,
+        };
+      },
+      () => {
+        const n = randInt(5, 9);
+        const k = randInt(2, 4);
+        const cnk = (valN: number, valR: number) => {
+          let num = 1;
+          let den = 1;
+          for (let i = 0; i < valR; i++) {
+            num *= valN - i;
+            den *= i + 1;
+          }
+          return Math.round(num / den);
+        };
+        const p = randInt(2, 4);
+        const coeff = cnk(n, 2) * p * p;
+        const correct = `$${coeff}$`;
+        const distractors = Array.from(new Set([cnk(n, 2) * p, coeff + p, cnk(n, 3) * p, coeff - n]))
+          .filter((x) => x !== coeff)
+          .slice(0, 3);
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Find the coefficient of $x^2$ in the binomial expansion of $(1 + ${p}x)^{${n}}$ (with $k=${k}$ check).`.replace(` (with $k=${k}$ check)`, ''),
+          options: shuffleArray([correct, ...distractors.map((v) => `$${v}$`)]),
+          correctAnswer: correct,
+          explanation: `The $x^2$ term is $\\binom{${n}}{2}(${p}x)^2 = ${cnk(n, 2)} \\times ${p * p}x^2 = ${coeff}x^2$.`,
+        };
+      },
+      () => {
+        const k = randInt(2, 5);
+        const a = randInt(1, 4);
+        const rem = a * k * k + 3 * k - 5;
+        const correct = `$${rem}$`;
+        const distractors = Array.from(new Set([rem + k, rem - 4, a * k * k - 3 * k - 5, rem + 7]))
+          .filter((x) => x !== rem)
+          .slice(0, 3);
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] By the Remainder Theorem, find the remainder when $P(x) = ${a}x^2 + 3x - 5$ is divided by $(x - ${k})$.`,
+          options: shuffleArray([correct, ...distractors.map((v) => `$${v}$`)]),
+          correctAnswer: correct,
+          explanation: `Remainder is $P(${k}) = ${a}(${k}^2) + 3(${k}) - 5 = ${rem}$.`,
+        };
+      },
+      () => {
+        const deg = pick([30, 45, 60, 120, 135, 150, 210, 225, 240, 300, 315, 330]);
+        const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+        const g = gcd(deg, 180);
+        const num = deg / g;
+        const den = 180 / g;
+        const correct = `$\\frac{${num === 1 ? '' : num}\\pi}{${den}}\\text{ rad}$`;
+        const distractors = [`$\\frac{${num + 1}\\pi}{${den}}\\text{ rad}$`, `$\\frac{${num}\\pi}{${den + 1}}\\text{ rad}$`, `$\\frac{${num * 2}\\pi}{${den}}\\text{ rad}$`];
+        return {
+          subjectTag: 'C.Maths',
+          questionText: `[C.Maths] Express $${deg}^{\\circ}$ in exact radians in terms of $\\pi$.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$${deg}^{\\circ} \\times \\frac{\\pi}{180^{\\circ}} = ${correct.replace('$', '').replace('$', '')}$.`,
+        };
+      },
+    ],
+    Physics: [
+      () => {
+        const m = randInt(2, 12);
+        const v = randInt(3, 12);
+        const ke = 0.5 * m * v * v;
+        const correct = `$${ke}\\text{ J}$`;
+        const distractors = [`$${m * v}\\text{ J}$`, `$${m * v * v}\\text{ J}$`, `$${ke + 14}\\text{ J}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] A body of mass $m = ${m}\\text{ kg}$ moves with velocity $v = ${v}\\text{ m s}^{-1}$. Calculate its kinetic energy.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$E_k = \\frac{1}{2}mv^2 = \\frac{1}{2}(${m})(${v})^2 = ${ke}\\text{ J}$.`,
+        };
+      },
+      () => {
+        const volt = pick([6, 12, 18, 24, 36]);
+        const r1 = randInt(2, 6);
+        const r2 = randInt(3, 9);
+        const current = +(volt / (r1 + r2)).toFixed(2);
+        const correct = `$${current}\\text{ A}$`;
+        const distractors = [`$${+(volt / r1).toFixed(2)}\\text{ A}$`, `$${+(current * 2).toFixed(2)}\\text{ A}$`, `$${+((r1 + r2) / volt).toFixed(2)}\\text{ A}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] Resistors of $${r1}\\,\\Omega$ and $${r2}\\,\\Omega$ are connected in series across a $${volt}\\text{ V}$ ideal battery. Find the circuit current.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$R_{\\text{eq}} = ${r1} + ${r2} = ${r1 + r2}\\,\\Omega$, so $I = \\frac{${volt}}{${r1 + r2}} = ${current}\\text{ A}$.`,
+        };
+      },
+      () => {
+        const u = randInt(10, 40);
+        const g = 10;
+        const h = +((u * u) / (2 * g)).toFixed(1);
+        const correct = `$${h}\\text{ m}$`;
+        const distractors = [`$${+(u / g).toFixed(1)}\\text{ m}$`, `$${+((u * u) / g).toFixed(1)}\\text{ m}$`, `$${+(h + 6).toFixed(1)}\\text{ m}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] A stone is projected vertically upwards at $u = ${u}\\text{ m s}^{-1}$ ($g = 10\\text{ m s}^{-2}$). Find the maximum height reached.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `At peak $v = 0$: $h = \\frac{u^2}{2g} = \\frac{${u}^2}{20} = ${h}\\text{ m}$.`,
+        };
+      },
+      () => {
+        const f = pick([40, 50, 80, 100, 125, 200, 250]);
+        const lam = pick([0.4, 0.5, 0.8, 1.2, 1.5, 2.0]);
+        const speed = +(f * lam).toFixed(1);
+        const correct = `$${speed}\\text{ m s}^{-1}$`;
+        const distractors = [`$${+(f / lam).toFixed(1)}\\text{ m s}^{-1}$`, `$${+(speed * 2).toFixed(1)}\\text{ m s}^{-1}$`, `$${+(speed / 2).toFixed(1)}\\text{ m s}^{-1}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] A progressive wave has frequency $f = ${f}\\text{ Hz}$ and wavelength $\\lambda = ${lam}\\text{ m}$. Calculate its speed.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$v = f\\lambda = ${f} \\times ${lam} = ${speed}\\text{ m s}^{-1}$.`,
+        };
+      },
+      () => {
+        const m = randInt(2, 8);
+        const r = pick([2, 4, 5]);
+        const v = randInt(4, 10);
+        const force = +((m * v * v) / r).toFixed(1);
+        const correct = `$${force}\\text{ N}$`;
+        const distractors = [`$${+(m * v).toFixed(1)}\\text{ N}$`, `$${+(force * 2).toFixed(1)}\\text{ N}$`, `$${+((m * v) / r).toFixed(1)}\\text{ N}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] A $${m}\\text{ kg}$ mass moves in a horizontal circle of radius $r = ${r}\\text{ m}$ at constant speed $v = ${v}\\text{ m s}^{-1}$. Find the centripetal force.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$F_c = \\frac{mv^2}{r} = \\frac{${m} \\times ${v}^2}{${r}} = ${force}\\text{ N}$.`,
+        };
+      },
+      () => {
+        const n0 = pick([800, 1600, 3200, 6400]);
+        const halfLives = randInt(2, 4);
+        const halfLifeYears = randInt(3, 8);
+        const remaining = n0 / Math.pow(2, halfLives);
+        const correct = `$${remaining}\\text{ nuclei}$`;
+        const distractors = [`$${remaining * 2}\\text{ nuclei}$`, `$${n0 / halfLives}\\text{ nuclei}$`, `$${remaining / 2}\\text{ nuclei}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] A radioactive sample starts with $${n0}$ undecayed nuclei and has half-life $T_{1/2} = ${halfLifeYears}\\text{ yr}$. How many remain after $${halfLives * halfLifeYears}\\text{ yr}$?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `Elapsed half-lives $n = \\frac{${halfLives * halfLifeYears}}{${halfLifeYears}} = ${halfLives}$, so $N = \\frac{${n0}}{2^{${halfLives}}} = ${remaining}$.`,
+        };
+      },
+      () => {
+        const c = pick([10, 20, 40, 50]);
+        const v = pick([6, 10, 12]);
+        const energy = 0.5 * c * v * v;
+        const correct = `$${energy}\\,\\mu\\text{J}$`;
+        const distractors = [`$${c * v}\\,\\mu\\text{J}$`, `$${c * v * v}\\,\\mu\\text{J}$`, `$${energy + 40}\\,\\mu\\text{J}$`];
+        return {
+          subjectTag: 'Physics',
+          questionText: `[Physics] A $${c}\\,\\mu\\text{F}$ capacitor is charged to a potential difference of $${v}\\text{ V}$. Calculate the electrostatic energy stored.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$U = \\frac{1}{2}CV^2 = \\frac{1}{2}(${c}\\,\\mu\\text{F})(${v}\\text{ V})^2 = ${energy}\\,\\mu\\text{J}$.`,
+        };
+      },
+      (idx) => {
+        const concepts = [
+          {
+            q: '[Physics] Which law states that the direction of an induced e.m.f. always opposes the change in magnetic flux producing it?',
+            a: "Lenz's Law",
+            d: ["Coulomb's Law", "Boyle's Law", "Snell's Law"],
+            exp: "Lenz's Law expresses conservation of energy in electromagnetic induction.",
+          },
+          {
+            q: '[Physics] In the photoelectric effect, increasing the frequency of incident light above the threshold frequency directly increases:',
+            a: 'The maximum kinetic energy of emitted photoelectrons',
+            d: ['The work function of the metal surface', 'The threshold wavelength', 'The mass of the emitted electrons'],
+            exp: 'By $hf = \\phi + K_{\\max}$, raising $f$ linearly raises $K_{\\max}$.',
+          },
+          {
+            q: '[Physics] Kirchhoff\'s First Law (Junction Rule) is a direct consequence of conservation of:',
+            a: 'Electric charge',
+            d: ['Linear momentum', 'Magnetic flux', 'Angular velocity'],
+            exp: 'Net current entering any node equals net current leaving it because charge cannot accumulate.',
+          },
+          {
+            q: '[Physics] In Simple Harmonic Motion, the acceleration of the particle is always:',
+            a: 'Proportional to displacement and directed toward the equilibrium position',
+            d: ['Constant in magnitude and direction', 'Maximum at the equilibrium position', 'Independent of angular frequency $\\omega$'],
+            exp: 'SHM is defined by $a = -\\omega^2 x$.',
+          },
+          {
+            q: '[Physics] For an ideal fluid in steady streamline flow, Bernoulli\'s equation relates pressure $P$, speed $v$, and height $h$ via conservation of:',
+            a: 'Mechanical energy per unit volume',
+            d: ['Angular momentum', 'Thermal entropy', 'Viscosity'],
+            exp: '$P + \\frac{1}{2}\\rho v^2 + \\rho gh = \\text{constant}$ reflects work-energy conservation in ideal fluid flow.',
+          },
+          {
+            q: '[Physics] The Young modulus $E$ of a wire is defined as the ratio of:',
+            a: 'Tensile stress to tensile strain within the proportional limit',
+            d: ['Extension to original length', 'Force to cross-sectional area', 'Shear strain to shear stress'],
+            exp: '$E = \\frac{\\sigma}{\\varepsilon} = \\frac{FL}{Ae}$.',
+          },
+        ];
+        const picked = concepts[idx % concepts.length];
+        return {
+          subjectTag: 'Physics',
+          questionText: picked.q,
+          options: shuffleArray([picked.a, ...picked.d]),
+          correctAnswer: picked.a,
+          explanation: picked.exp,
+        };
+      },
+    ],
+    Chemistry: [
+      () => {
+        const conc = pick([0.1, 0.2, 0.25, 0.4, 0.5, 0.8]);
+        const volCm3 = pick([100, 200, 250, 400, 500]);
+        const moles = +(conc * (volCm3 / 1000)).toFixed(3);
+        const correct = `$${moles}\\text{ mol}$`;
+        const distractors = [`$${+(moles * 10).toFixed(3)}\\text{ mol}$`, `$${+(moles / 2).toFixed(3)}\\text{ mol}$`, `$${+(conc + volCm3 / 1000).toFixed(3)}\\text{ mol}$`];
+        return {
+          subjectTag: 'Chemistry',
+          questionText: `[Chemistry] How many moles of solute are present in $${volCm3}\\text{ cm}^3$ of a $${conc}\\text{ mol dm}^{-3}$ solution?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$n = C \\times V = ${conc} \\times ${volCm3 / 1000}\\text{ dm}^3 = ${moles}\\text{ mol}$.`,
+        };
+      },
+      () => {
+        const hExp = randInt(1, 6);
+        const correct = `pH = $${hExp}$`;
+        const distractors = [`pH = $${14 - hExp}$`, `pH = $${hExp + 1}$`, `pH = $${hExp + 2}$`];
+        return {
+          subjectTag: 'Chemistry',
+          questionText: `[Chemistry] An aqueous strong monoprotic acid solution at $25^{\\circ}\\text{C}$ has $[\\text{H}^+] = 1.0 \\times 10^{-${hExp}}\\text{ mol dm}^{-3}$. Find its pH.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$\\text{pH} = -\\log_{10}(10^{-${hExp}}) = ${hExp}$.`,
+        };
+      },
+      () => {
+        const c1 = pick([2.0, 4.0, 5.0]);
+        const v1 = pick([10, 20, 25, 50]);
+        const v2 = pick([100, 200, 250, 500]);
+        const c2 = +((c1 * v1) / v2).toFixed(3);
+        const correct = `$${c2}\\text{ mol dm}^{-3}$`;
+        const distractors = [`$${+(c2 * 2).toFixed(3)}\\text{ mol dm}^{-3}$`, `$${+(c2 * 10).toFixed(3)}\\text{ mol dm}^{-3}$`, `$${+(c1 / 2).toFixed(3)}\\text{ mol dm}^{-3}$`];
+        return {
+          subjectTag: 'Chemistry',
+          questionText: `[Chemistry] If $${v1}\\text{ cm}^3$ of $${c1}\\text{ mol dm}^{-3}$ $\\text{HCl}$ is diluted with water to $${v2}\\text{ cm}^3$, what is the final molarity?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `Using $C_1 V_1 = C_2 V_2$: $C_2 = \\frac{${c1} \\times ${v1}}{${v2}} = ${c2}\\text{ mol dm}^{-3}$.`,
+        };
+      },
+      () => {
+        const amp = pick([2, 4, 5, 10]);
+        const sec = pick([965, 1930, 3860]);
+        const faraday = 96500;
+        const molesE = +((amp * sec) / faraday).toFixed(3);
+        const correct = `$${molesE}\\text{ mol}$`;
+        const distractors = [`$${+(molesE * 2).toFixed(3)}\\text{ mol}$`, `$${+(molesE * 10).toFixed(3)}\\text{ mol}$`, `$${+(molesE / 2).toFixed(3)}\\text{ mol}$`];
+        return {
+          subjectTag: 'Chemistry',
+          questionText: `[Chemistry] A steady current of $${amp}\\text{ A}$ passes through an electrolytic cell for $${sec}\\text{ s}$ ($F = 96500\\text{ C mol}^{-1}$). How many moles of electrons are transferred?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$n(e^-) = \\frac{It}{F} = \\frac{${amp} \\times ${sec}}{96500} = ${molesE}\\text{ mol}$.`,
+        };
+      },
+      (idx) => {
+        const scenarios = [
+          {
+            q: '[Chemistry] Which intermolecular force explains the anomalously high boiling point of $\\text{H}_2\\text{O}$ compared to $\\text{H}_2\\text{S}$?',
+            a: 'Intermolecular hydrogen bonding',
+            d: ['London dispersion forces only', 'Ionic lattice attraction', 'Metallic bonding'],
+            exp: 'Strongly electronegative oxygen enables extensive $\\text{O}-\\text{H}\\cdots\\text{O}$ hydrogen bonding.',
+          },
+          {
+            q: '[Chemistry] For an endothermic reversible reaction ($\\Delta H > 0$) at equilibrium, increasing temperature shifts equilibrium toward:',
+            a: 'Products, increasing $K_c$',
+            d: ['Reactants, decreasing $K_c$', 'Neither side; $K_c$ stays constant', 'Only solid phases'],
+            exp: 'Raising temperature favors the endothermic direction and raises $K_c$.',
+          },
+          {
+            q: '[Chemistry] What is the hybridization of each carbon atom in ethene ($\\text{C}_2\\text{H}_4$)?',
+            a: '$sp^2$ trigonal planar',
+            d: ['$sp^3$ tetrahedral', '$sp$ linear', '$sp^3d$ trigonal bipyramidal'],
+            exp: 'Each carbon forms three $\\sigma$ bonds and one $\\pi$ bond ($sp^2$).',
+          },
+          {
+            q: '[Chemistry] According to VSEPR theory, what molecular geometry does ammonia ($\\text{NH}_3$) adopt?',
+            a: 'Trigonal pyramidal ($\\approx 107^{\\circ}$)',
+            d: ['Trigonal planar ($120^{\\circ}$)', 'Tetrahedral ($109.5^{\\circ}$)', 'Linear ($180^{\\circ}$)'],
+            exp: 'Three bonding pairs and one lone pair on nitrogen compress the angle to $\\approx 107^{\\circ}$.',
+          },
+          {
+            q: '[Chemistry] In the addition of $\\text{HBr}$ to propene ($\\text{CH}_3\\text{CH}=\\text{CH}_2$), the major product is 2-bromopropane according to:',
+            a: "Markovnikov's Rule",
+            d: ["Hund's Rule", "Raoult's Law", "Ostwald's Dilution Law"],
+            exp: 'Protonation forms the more stable secondary carbocation intermediate.',
+          },
+          {
+            q: '[Chemistry] Why is the first ionization energy of Nitrogen ($Z=7$) higher than that of Oxygen ($Z=8$)?',
+            a: 'Nitrogen has a half-filled stable $2p^3$ subshell; Oxygen experiences spin-pairing repulsion in $2p^4$',
+            d: ['Oxygen has a smaller nuclear charge', 'Nitrogen has fewer shielding inner electrons', 'Oxygen has an empty $2s$ orbital'],
+            exp: 'Electron-electron repulsion in the paired $2p$ orbital of oxygen lowers its first ionization energy.',
+          },
+        ];
+        const picked = scenarios[idx % scenarios.length];
+        return {
+          subjectTag: 'Chemistry',
+          questionText: picked.q,
+          options: shuffleArray([picked.a, ...picked.d]),
+          correctAnswer: picked.a,
+          explanation: picked.exp,
+        };
+      },
+    ],
+    Bio: [
+      () => {
+        const pFreq = pick([0.6, 0.7, 0.8]);
+        const qFreq = +(1 - pFreq).toFixed(1);
+        const het = +(2 * pFreq * qFreq).toFixed(2);
+        const correct = `$${het}$ ($${Math.round(het * 100)}\\%$)`;
+        const distractors = [
+          `$${+(pFreq * pFreq).toFixed(2)}$ ($${Math.round(pFreq * pFreq * 100)}\\%$)`,
+          `$${+(qFreq * qFreq).toFixed(2)}$ ($${Math.round(qFreq * qFreq * 100)}\\%$)`,
+          `$${+(pFreq * qFreq).toFixed(2)}$ ($${Math.round(pFreq * qFreq * 100)}\\%$)`,
+        ];
+        return {
+          subjectTag: 'Bio',
+          questionText: `[Bio] In a Hardy-Weinberg population where dominant allele frequency $p = ${pFreq}$ and $q = ${qFreq}$, what is the expected frequency of heterozygotes ($2pq$)?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `Heterozygote frequency $= 2pq = 2(${pFreq})(${qFreq}) = ${het}$.`,
+        };
+      },
+      (idx) => {
+        const scenarios = [
+          {
+            q: '[Bio] During aerobic respiration, where does the Krebs (citric acid) cycle take place in a eukaryotic cell?',
+            a: 'Mitochondrial matrix',
+            d: ['Cytosol', 'Inner mitochondrial cristae only', 'Chloroplast stroma'],
+            exp: 'Pyruvate enters the mitochondrial matrix where Krebs cycle enzymes operate.',
+          },
+          {
+            q: '[Bio] Which enzyme catalyzes carbon fixation by combining $\\text{CO}_2$ with RuBP in the Calvin cycle?',
+            a: 'RuBisCO',
+            d: ['ATP synthase', 'DNA helicase', 'PEP carboxykinase only'],
+            exp: 'RuBisCO fixes atmospheric $\\text{CO}_2$ onto ribulose-1,5-bisphosphate in the stroma.',
+          },
+          {
+            q: '[Bio] Which blood vessel delivers oxygenated blood from the lungs directly into the left atrium?',
+            a: 'Pulmonary vein',
+            d: ['Pulmonary artery', 'Superior vena cava', 'Aorta'],
+            exp: 'Pulmonary veins return oxygen-rich blood to the left atrium.',
+          },
+          {
+            q: '[Bio] In DNA replication, which enzyme synthesizes new complementary strands strictly in the $5\' \\to 3\'$ direction?',
+            a: 'DNA polymerase III',
+            d: ['RNA primase', 'DNA ligase', 'Topoisomerase'],
+            exp: 'DNA polymerase adds dNTPs onto free $3\'-\\text{OH}$ ends.',
+          },
+          {
+            q: '[Bio] Which hormone increases the permeability of renal collecting ducts to water via aquaporin insertion?',
+            a: 'Antidiuretic hormone (ADH / Vasopressin)',
+            d: ['Aldosterone', 'Insulin', 'Glucagon'],
+            exp: 'ADH binds collecting-duct receptors to trigger aquaporin-2 water reabsorption.',
+          },
+          {
+            q: '[Bio] How does a competitive inhibitor alter the kinetics of an enzyme-catalyzed reaction?',
+            a: 'Increases apparent $K_m$ while $V_{\\max}$ remains unchanged',
+            d: ['Decreases $V_{\\max}$ while $K_m$ remains unchanged', 'Decreases both $K_m$ and $V_{\\max}$', 'Permanently denatures the active site'],
+            exp: 'High substrate concentration outcompetes the inhibitor, preserving $V_{\\max}$ while raising apparent $K_m$.',
+          },
+          {
+            q: '[Bio] In plant physiology, translocation of sucrose through sieve-tube elements of the phloem is explained by:',
+            a: 'Münch pressure-flow hypothesis',
+            d: ['Cohesion-tension transpiration pull', 'Root pressure guttation', 'Casparian strip active blockade'],
+            exp: 'Active phloem loading creates osmotic water influx driving bulk flow from source to sink.',
+          },
+          {
+            q: '[Bio] Which stage of meiosis features crossing over (chiasmata formation) between homologous chromosomes?',
+            a: 'Prophase I',
+            d: ['Metaphase II', 'Anaphase I', 'Telophase I'],
+            exp: 'Synapsis and recombination occur during pachytene of Prophase I.',
+          },
+          {
+            q: '[Bio] Which immune cells produce and secrete specific antibodies (immunoglobulins) upon differentiation into plasma cells?',
+            a: 'B lymphocytes',
+            d: ['Cytotoxic T cells', 'Neutrophils', 'Erythrocytes'],
+            exp: 'Activated B cells differentiate into antibody-secreting plasma cells.',
+          },
+          {
+            q: '[Bio] During depolarization of a mammalian neuron axon, which ion channels open rapidly?',
+            a: 'Voltage-gated $\\text{Na}^+$ channels allowing $\\text{Na}^+$ influx',
+            d: ['Voltage-gated $\\text{K}^+$ channels allowing $\\text{K}^+$ influx', 'Ligand-gated $\\text{Cl}^-$ channels', 'Calcium ATPase pumps'],
+            exp: 'Rapid $\\text{Na}^+$ influx drives membrane potential from $-70\\text{ mV}$ toward $+30\\text{ mV}$.',
+          },
+        ];
+        const picked = scenarios[idx % scenarios.length];
+        return {
+          subjectTag: 'Bio',
+          questionText: picked.q,
+          options: shuffleArray([picked.a, ...picked.d]),
+          correctAnswer: picked.a,
+          explanation: picked.exp,
+        };
+      },
+    ],
+    ICT: [
+      () => {
+        const val = randInt(19, 250);
+        const bin = val.toString(2).padStart(8, '0');
+        const wrong1 = (val ^ 4).toString(2).padStart(8, '0');
+        const wrong2 = (val ^ 1).toString(2).padStart(8, '0');
+        const wrong3 = (val ^ 8).toString(2).padStart(8, '0');
+        return {
+          subjectTag: 'ICT',
+          questionText: `[ICT] Convert the decimal integer $${val}_{10}$ into an 8-bit unsigned binary representation.`,
+          options: shuffleArray([bin, wrong1, wrong2, wrong3]),
+          correctAnswer: bin,
+          explanation: `Repeated division by $2$ gives $${val}_{10} = ${bin}_2$.`,
+        };
+      },
+      () => {
+        const val = randInt(25, 125);
+        const bin = val.toString(2);
+        const correct = `$${val}_{10}$`;
+        const distractors = [`$${val + 2}_{10}$`, `$${val - 2}_{10}$`, `$${val + 4}_{10}$`];
+        return {
+          subjectTag: 'ICT',
+          questionText: `[ICT] What is the decimal value of the binary number $${bin}_2$?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `Summing the active powers of $2$ in $${bin}_2$ evaluates to $${val}_{10}$.`,
+        };
+      },
+      () => {
+        const val = randInt(28, 254);
+        const hex = val.toString(16).toUpperCase();
+        const correct = `$${val}_{10}$`;
+        const distractors = [`$${val + 16}_{10}$`, `$${Math.max(10, val - 16)}_{10}$`, `$${val + 6}_{10}$`];
+        return {
+          subjectTag: 'ICT',
+          questionText: `[ICT] Convert the hexadecimal number $\\text{0x${hex}}_{16}$ to decimal.`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `$\\text{0x${hex}}_{16} = ${Math.floor(val / 16)} \\times 16 + ${val % 16} = ${val}_{10}$.`,
+        };
+      },
+      () => {
+        const a = randInt(0, 1);
+        const b = randInt(0, 1);
+        const gateType = pick(['NAND', 'NOR', 'XOR', 'XNOR']);
+        const out =
+          gateType === 'NAND'
+            ? Number(!(a && b))
+            : gateType === 'NOR'
+            ? Number(!(a || b))
+            : gateType === 'XOR'
+            ? Number(a !== b)
+            : Number(a === b);
+        const correct = `Output = $${out}$`;
+        const distractors = [`Output = $${1 - out}$`, `Output = High Impedance (Z)`, `Output = Undefined`];
+        return {
+          subjectTag: 'ICT',
+          questionText: `[ICT] A 2-input **${gateType}** logic gate receives inputs $A = ${a}$ and $B = ${b}$. What is its boolean output?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `Evaluating ${gateType}(${a}, ${b}) produces $${out}$.`,
+        };
+      },
+      () => {
+        const mb = pick([10, 20, 25, 40, 50, 100]);
+        const mbps = pick([8, 16, 20, 40]);
+        const sec = +((mb * 8) / mbps).toFixed(1);
+        const correct = `$${sec}\\text{ s}$`;
+        const distractors = [`$${+(mb / mbps).toFixed(2)}\\text{ s}$`, `$${+(sec * 2).toFixed(1)}\\text{ s}$`, `$${+(sec / 2).toFixed(1)}\\text{ s}$`];
+        return {
+          subjectTag: 'ICT',
+          questionText: `[ICT] How long does it take to transmit a $${mb}\\text{ MB}$ ($1\\text{ Byte} = 8\\text{ bits}$) file over a $${mbps}\\text{ Mbps}$ network link?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `Total bits $= ${mb} \\times 8 = ${mb * 8}\\text{ Mb}$; Time $= \\frac{${mb * 8}}{${mbps}} = ${sec}\\text{ s}$.`,
+        };
+      },
+      () => {
+        const cidr = pick([24, 25, 26, 27, 28]);
+        const hostBits = 32 - cidr;
+        const usable = Math.pow(2, hostBits) - 2;
+        const correct = `$${usable}$ usable hosts`;
+        const distractors = [
+          `$${Math.pow(2, hostBits)}$ usable hosts`,
+          `$${usable - 2}$ usable hosts`,
+          `$${Math.pow(2, hostBits - 1) - 2}$ usable hosts`,
+        ];
+        return {
+          subjectTag: 'ICT',
+          questionText: `[ICT] How many usable host IP addresses are available inside an IPv4 subnet with prefix **/${cidr}**?`,
+          options: shuffleArray([correct, ...distractors]),
+          correctAnswer: correct,
+          explanation: `With $32 - ${cidr} = ${hostBits}$ host bits, usable hosts $= 2^{${hostBits}} - 2 = ${usable}$ (excluding network and broadcast addresses).`,
+        };
+      },
+      (idx) => {
+        const concepts = [
+          {
+            q: "[ICT] By De Morgan's Theorem, the Boolean expression $\\overline{A \\cdot B}$ is logically equivalent to:",
+            a: '$\\overline{A} + \\overline{B}$',
+            d: ['$\\overline{A} \\cdot \\overline{B}$', '$A + B$', '$A \\oplus B$'],
+            exp: "De Morgan's Law states the complement of a product equals the sum of the complements.",
+          },
+          {
+            q: '[ICT] In relational database normalization, a table is in **Third Normal Form (3NF)** when it is in 2NF and has:',
+            a: 'No transitive dependencies between non-key attributes',
+            d: ['No primary key', 'Duplicate repeating groups', 'Only numeric columns'],
+            exp: '3NF eliminates transitive dependencies so every non-key attribute depends solely on the primary key.',
+          },
+          {
+            q: '[ICT] Which OSI model layer is responsible for logical IP addressing and packet routing across networks?',
+            a: 'Layer 3 — Network Layer',
+            d: ['Layer 2 — Data Link Layer', 'Layer 4 — Transport Layer', 'Layer 1 — Physical Layer'],
+            exp: 'Routers operate at the Network Layer (Layer 3) using IP addresses.',
+          },
+          {
+            q: '[ICT] What is the worst-case time complexity of Binary Search on a sorted array of $n$ elements?',
+            a: '$O(\\log n)$',
+            d: ['$O(n)$', '$O(n^2)$', '$O(1)$'],
+            exp: 'Binary Search halves the search interval on every comparison, yielding $O(\\log_2 n)$ steps.',
+          },
+          {
+            q: '[ICT] Which data structure follows the **LIFO** (Last-In, First-Out) ordering principle?',
+            a: 'Stack',
+            d: ['Queue', 'Hash Table', 'Linked Graph'],
+            exp: 'A Stack pushes and pops elements strictly from the top (LIFO).',
+          },
+          {
+            q: '[ICT] Which SQL clause is used to filter aggregated groups produced by a `GROUP BY` statement?',
+            a: 'HAVING',
+            d: ['WHERE', 'ORDER BY', 'DISTINCT'],
+            exp: '`HAVING` filters grouped aggregate rows after `GROUP BY`, whereas `WHERE` filters individual rows before grouping.',
+          },
+        ];
+        const picked = concepts[idx % concepts.length];
+        return {
+          subjectTag: 'ICT',
+          questionText: picked.q,
+          options: shuffleArray([picked.a, ...picked.d]),
+          correctAnswer: picked.a,
+          explanation: picked.exp,
+        };
+      },
+    ],
+  };
+
+  const questions: any[] = [];
+  const usedTexts = new Set<string>();
+  const targetCount = Math.min(Math.max(Number(count) || 50, 3), 60);
+  const marksVal = difficulty === 'hard' ? 15 : difficulty === 'medium' ? 12 : 10;
+
+  let attempts = 0;
+  let subjectCursor = 0;
+  while (questions.length < targetCount && attempts < targetCount * 20) {
+    attempts++;
+    const subKey = activeSubjects[subjectCursor % activeSubjects.length];
+    subjectCursor++;
+    const subBank = banks[subKey] || banks.Physics;
+    const genFn = subBank[attempts % subBank.length];
+    const qObj = genFn(attempts);
+    if (!usedTexts.has(qObj.questionText)) {
+      usedTexts.add(qObj.questionText);
+      questions.push({
+        id: `pvp-q-${Date.now()}-${questions.length + 1}-${randInt(100, 999)}`,
+        questionText: qObj.questionText,
+        type: 'multiple_choice',
+        options: qObj.options,
+        correctAnswer: qObj.correctAnswer,
+        explanation: qObj.explanation,
+        marks: marksVal,
+        difficulty: difficulty || 'medium',
+      });
+    }
+  }
+
+  // Safety guarantee if a single small bank runs low on distinct text variations: append variant index
+  let variantCounter = 1;
+  while (questions.length < targetCount) {
+    const subKey = activeSubjects[variantCounter % activeSubjects.length];
+    const subBank = banks[subKey] || banks.Physics;
+    const qObj = subBank[variantCounter % subBank.length](variantCounter);
+    const taggedText = `${qObj.questionText} (Set #${variantCounter})`;
+    if (!usedTexts.has(taggedText)) {
+      usedTexts.add(taggedText);
+      questions.push({
+        id: `pvp-q-${Date.now()}-${questions.length + 1}-${randInt(100, 999)}`,
+        questionText: taggedText,
+        type: 'multiple_choice',
+        options: qObj.options,
+        correctAnswer: qObj.correctAnswer,
+        explanation: qObj.explanation,
+        marks: marksVal,
+        difficulty: difficulty || 'medium',
+      });
+    }
+    variantCounter++;
+  }
+
+  return questions;
+}
+
+// 2b. Gemini AI Fresh PvP Quiz Competition Generator (supports 50 subject-matched questions!)
+app.post('/api/gemini/pvp-quiz-generate', async (req, res) => {
+  try {
+    const {
+      subject = 'Mixed 2k28 Science EM',
+      subjects,
+      topic,
+      difficulty = 'medium',
+      numQuestions = 50,
+      nonce,
+    } = req.body || {};
+
+    const targetCount = Math.min(Math.max(Number(numQuestions) || 50, 3), 50);
+    const normalizedSubjects = normalizeRequestedSubjects(subjects, subject);
+    const subjectLabel = normalizedSubjects.join(', ');
+    const roundSeed = Math.floor(Math.random() * 1_000_000_000);
+    const focusLenses = [
+      'conceptual reasoning and analytical problem solving',
+      'quantitative numerical calculations and formula applications',
+      'experimental lab observations and graph/data interpretation',
+      'challenging G.C.E. A/L past-paper multiple choice distinctions',
+    ];
+    const chosenLens = focusLenses[roundSeed % focusLenses.length];
+
+    let questions: any[] = [];
+    let source: 'gemini_ai' | 'procedural_engine' = 'procedural_engine';
+    let aiError: string | null = null;
+    const { customKey, activeKey, client } = resolveGeminiConfig(req);
+
+    if (activeKey) {
+      const generateBatch = async (batchCount: number, batchNum: number) => {
+        const batchPrompt = `Generate a brand-new, unique Player-vs-Player Quiz Competition batch for G.C.E. Advanced Level students at Zahira College Mawanella.
+Selected Student Subjects ONLY: ${subjectLabel} (STRICTLY include ONLY questions from these selected subjects: C.Maths = Combined Mathematics, Bio = Biology, Physics = Physics, Chemistry = Chemistry, ICT = Information & Communication Technology; distribute evenly across: ${subjectLabel}).
+Specific Topic / Angle: ${topic || 'Diverse G.C.E. A/L syllabus concepts'}
+Analytical Lens: ${chosenLens}
+Difficulty: ${difficulty}
+Exact Question Count in This Batch: ${batchCount}
+Batch Identifier: ${batchNum} | Unique Match Nonce: ${nonce || `${Date.now()}-${roundSeed}`} (NEVER repeat clichéd textbook examples; invent fresh numbers and scenarios).
+
+Requirements for EVERY question:
+- id: unique string
+- questionText: prefix cleanly with "[Subject] " (e.g. "[C.Maths] ", "[Physics] ", "[ICT] ", "[Bio] ", "[Chemistry] "). Use clean LaTeX "$ ... $" for math/chemical formulas.
+- type: MUST be 'multiple_choice'
+- options: array of EXACTLY 4 distinct choices (strings)
+- correctAnswer: MUST match one of the 4 strings in 'options' character-for-character
+- explanation: concise 1-2 sentence explanation
+- marks: integer point value (10 for easy, 12 for medium, 15 for hard)
+- difficulty: '${difficulty}'`;
+
+        const callModel = async (modelName: string, timeoutMs: number) => {
+          const aiPromise = client.models.generateContent({
+            model: modelName,
+            contents: batchPrompt,
+            config: {
+              seed: roundSeed + batchNum,
+              thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+              },
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    questionText: { type: Type.STRING },
+                    type: { type: Type.STRING },
+                    options: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                    correctAnswer: { type: Type.STRING },
+                    explanation: { type: Type.STRING },
+                    marks: { type: Type.NUMBER },
+                    difficulty: { type: Type.STRING },
+                  },
+                  required: ['id', 'questionText', 'type', 'options', 'correctAnswer', 'explanation', 'marks', 'difficulty'],
+                },
+              },
+            },
+          });
+          return raceTimeout(aiPromise, timeoutMs);
+        };
+
+        const batchTimeout = customKey ? 15000 : 11000;
+        const response = await callModel('gemini-4-hydrogen', batchTimeout)
+          .catch(async (err: any) => {
+            const msg = String(err?.message || '');
+            if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+              return callModel('gemini-3.8-flash', batchTimeout);
+            }
+            throw err;
+          })
+          .catch(async (err: any) => {
+            const msg = String(err?.message || '');
+            if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+              return callModel('gemini-2.5-flash', batchTimeout);
+            }
+            aiError = msg || 'Gemini API call failed';
+            console.warn('PvP Gemini batch warning:', msg);
+            return null;
+          });
+
+        if (response && response.text) {
+          const parsed = JSON.parse(response.text);
+          if (Array.isArray(parsed)) {
+            return parsed
+              .filter((q: any) => q?.questionText && Array.isArray(q?.options) && q.options.length >= 2 && q.correctAnswer)
+              .slice(0, batchCount)
+              .map((q: any, idx: number) => {
+                const uniqueOpts = Array.from(new Set(q.options.map((o: any) => String(o).trim())));
+                if (!uniqueOpts.includes(String(q.correctAnswer).trim())) {
+                  uniqueOpts[0] = String(q.correctAnswer).trim();
+                }
+                return {
+                  id: q.id || `gem-pvp-${Date.now()}-${batchNum}-${idx + 1}`,
+                  questionText: String(q.questionText),
+                  type: 'multiple_choice',
+                  options: shuffleArray(uniqueOpts.slice(0, 4)),
+                  correctAnswer: String(q.correctAnswer).trim(),
+                  explanation: String(q.explanation || 'Verified by Gemini AI.'),
+                  marks: Number(q.marks) || (difficulty === 'hard' ? 15 : difficulty === 'medium' ? 12 : 10),
+                  difficulty: difficulty,
+                };
+              });
+          }
+        }
+        return [];
+      };
+
+      try {
+        if (targetCount > 25) {
+          const firstHalf = Math.ceil(targetCount / 2);
+          const secondHalf = targetCount - firstHalf;
+          const [b1, b2] = await Promise.all([
+            generateBatch(firstHalf, 1),
+            generateBatch(secondHalf, 2),
+          ]);
+          const seen = new Set<string>();
+          [...b1, ...b2].forEach((q) => {
+            if (!seen.has(q.questionText)) {
+              seen.add(q.questionText);
+              questions.push(q);
+            }
+          });
+        } else {
+          questions = await generateBatch(targetCount, 1);
+        }
+        if (questions.length > 0) {
+          source = 'gemini_ai';
+        }
+      } catch (err: any) {
+        aiError = err?.message || 'Gemini AI request error';
+        console.warn('PvP Gemini error:', aiError);
+      }
+    }
+
+    // Pad any remaining shortfall up to targetCount (e.g. 50) using subject-matched procedural generator
+    if (questions.length < targetCount) {
+      const remaining = targetCount - questions.length;
+      const existingTexts = new Set(questions.map((q) => q.questionText));
+      const padPool = generateFreshProceduralPvPQuestions(
+        subjectLabel,
+        difficulty,
+        remaining + 10,
+        normalizedSubjects
+      );
+      for (const item of padPool) {
+        if (questions.length >= targetCount) break;
+        if (!existingTexts.has(item.questionText)) {
+          existingTexts.add(item.questionText);
+          questions.push(item);
+        }
+      }
+      if (source !== 'gemini_ai') {
+        source = 'procedural_engine';
+      }
+    }
+
+    res.json({
+      questions: questions.slice(0, targetCount),
+      subjects: normalizedSubjects,
+      source,
+      generatedAt: new Date().toISOString(),
+      usedCustomKey: Boolean(customKey),
+      aiError,
+    });
+  } catch (error: any) {
+    console.error('PvP Quiz Generation Error:', error);
+    const normalized = normalizeRequestedSubjects(req.body?.subjects, req.body?.subject);
+    const fallback = generateFreshProceduralPvPQuestions(
+      normalized.join(', '),
+      req.body?.difficulty || 'medium',
+      req.body?.numQuestions || 50,
+      normalized
+    );
+    res.json({
+      questions: fallback,
+      subjects: normalized,
+      source: 'procedural_engine',
+      generatedAt: new Date().toISOString(),
+    });
+  }
+});
+
 // 3. Gemini AI Grading Assistant
 app.post('/api/gemini/grade-assistant', async (req, res) => {
   try {
@@ -561,8 +1567,9 @@ app.post('/api/gemini/grade-assistant', async (req, res) => {
 
     const max = maxMarks || 100;
     let result: any = null;
+    const { activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
         const prompt = `You are an expert academic evaluator assisting a teacher with grading student work.
 Assignment: ${assignmentTitle}
@@ -583,7 +1590,7 @@ Evaluate this student submission fairly. Provide:
 5. reasoning: brief justification for the teacher
 6. feedbackDraft: a constructive, polite paragraph feedback for the student that the teacher can edit and approve.`;
 
-        const aiPromise = ai.models.generateContent({
+        const aiPromise = client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
@@ -663,10 +1670,11 @@ Additional Context/Preferences: ${additionalNotes || 'Standard academic standard
 Provide output formatted in elegant Markdown.`;
 
     let content = '';
+    const { activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
-        const aiPromise = ai.models.generateContent({
+        const aiPromise = client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
@@ -718,8 +1726,9 @@ app.post('/api/gemini/insights', async (req, res) => {
     const { role, academicData } = req.body;
 
     let parsed: any = null;
+    const { activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
         const prompt = `You are the Zahira College 2k28 Science EM Academic Analyst.
 Analyze the following verified school performance metrics for role: "${role}".
@@ -729,7 +1738,7 @@ ${JSON.stringify(academicData, null, 2)}
 
 Provide a concise, highly insightful diagnostic matching the schema.`;
 
-        const aiPromise = ai.models.generateContent({
+        const aiPromise = client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
@@ -790,8 +1799,9 @@ app.post('/api/gemini/discussion-summary', async (req, res) => {
   try {
     const { topicTitle, category, posts } = req.body;
     let parsed: any = null;
+    const { activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
         const prompt = `Summarize the educational discussion thread "${topicTitle}" in category "${category}".
 Discussion Posts:
@@ -799,7 +1809,7 @@ ${(posts || []).map((p: any) => `${p.authorName} (${p.authorRole}): ${p.content}
 
 Provide summary, keyConcepts, unansweredQuestions, and studyQuestions.`;
 
-        const aiPromise = ai.models.generateContent({
+        const aiPromise = client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {
@@ -876,7 +1886,7 @@ app.post('/api/gemini/student-assistant', async (req, res) => {
       ? events.map((e: any) => `- ${e.date} (${e.time || 'All Day'}): ${e.title} [${e.type || 'Event'}] - ${e.description || ''}`).join('\n')
       : 'Term 1 Mid-Term Assessments: Nov 20-25 | Annual Science Day: Dec 12.';
 
-    const systemInstruction = `You are "244 AI", the official intelligent Academic Assistant for Zahira College Mawanella (2k28 Science English Medium batch).
+    const systemInstruction = `You are "244 AI" powered by Google Gemini, the official intelligent Academic Assistant for Zahira College Mawanella (2k28 Science English Medium batch).
 You are speaking to ${studentName} (${role}).
 
 Today's Date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
@@ -892,10 +1902,11 @@ ${scheduleSummary}
 ${eventsSummary}
 
 YOUR MISSION:
-1. Provide accurate, clear, and instant answers when the student asks about their current assignments, homework status, due dates, or teacher requirements.
-2. Provide precise answers when they ask about class schedules, timetable periods, lecture rooms, faculty in charge, or today's/tomorrow's schedule.
-3. Be warm, motivating, collegiate, and encouraging, embodying the proud tradition of Zahira College Mawanella.
-4. Keep responses crisp and easy to scan in a floating chat window.`;
+1. Answer ANY question the user asks freely (whether academic science, mathematics, past papers, general knowledge, study planning, or school assignments/schedules).
+2. Never restrict yourself to canned topics — give direct, custom, accurate answers for any question.
+3. Format mathematical and scientific steps cleanly with Markdown and LaTeX: use "$ ... $" for inline symbols/ratios and "$$ ... $$" on its own line for key centered equations with stacked fractions (\\frac{a}{b}), bold vectors (\\mathbf{a}), and \\implies.
+4. Be warm, motivating, collegiate, and encouraging.
+5. Keep responses crisp and easy to scan in a floating chat window.`;
 
     const contents = (messages || []).map((m: { role: string; content: string }) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -903,10 +1914,11 @@ YOUR MISSION:
     }));
 
     let reply = '';
+    const { customKey, activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
-        const aiPromise = ai.models.generateContent({
+        const response = await client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents,
           config: {
@@ -917,18 +1929,27 @@ YOUR MISSION:
           },
         });
 
-        const response = await raceTimeout(aiPromise, 3500);
         if (response && response.text) {
           reply = response.text;
         }
-      } catch (geminiErr) {
-        console.warn('Gemini Student Assistant warning, using local engine:', geminiErr);
+      } catch (geminiErr: any) {
+        console.warn('Gemini Student Assistant warning:', geminiErr?.message || geminiErr);
+        if (customKey) {
+          return res.json({
+            reply: `⚠️ **Custom Gemini API Key Error**: ${geminiErr?.message || 'Invalid API key or quota limit'}.\n\nPlease verify or update your key using the **API Key** icon at the top of this chat.`,
+          });
+        }
       }
     }
 
     if (!reply) {
       const lastMsg = contents[contents.length - 1]?.parts?.[0]?.text || '';
-      reply = generateInstantStudentAssistant(lastMsg, studentContext);
+      const qLower = lastMsg.toLowerCase();
+      if (qLower.includes('assignment') || qLower.includes('homework') || qLower.includes('timetable') || qLower.includes('schedule') || qLower.includes('badge')) {
+        reply = generateInstantStudentAssistant(lastMsg, studentContext);
+      } else {
+        reply = `You asked: **"${lastMsg}"**\n\nTo receive live Gemini AI answers for any custom question, please insert your Gemini API key using the **API Key** button at the top of this chat (or set \`GEMINI_API_KEY\` in server settings).`;
+      }
     }
 
     res.json({ reply });
@@ -957,15 +1978,16 @@ app.post('/api/gemini/study-planner', async (req, res) => {
     const hours = availableHoursPerDay || 3.5;
 
     let parsed: any = null;
+    const { activeKey, client } = resolveGeminiConfig(req);
 
-    if (process.env.GEMINI_API_KEY) {
+    if (activeKey) {
       try {
         const prompt = `Generate a personalized, high-yield 7-day science study timetable for student: "${studentName || 'Scholar'}".
 Stream: ${streamLabel}
 Weekly Study Capacity: ${hours} hours/day
 Weak Topics / Focus: ${weakTopics || preferredFocus || 'Exam-focused mastery'}`;
 
-        const aiPromise = ai.models.generateContent({
+        const aiPromise = client.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: {

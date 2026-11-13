@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { jsPDF } from 'jspdf';
-import { db } from '../firebase';
+import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { SchoolEvent, SchoolEventType, AttendanceRecord, AttendanceStatus, UserProfile, SchoolClass, ScheduledClass, RosterStudent } from '../types';
 import {
@@ -88,8 +88,11 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
 
   // Scheduled Classes State
   const [scheduledClasses, setScheduledClasses] = useState<ScheduledClass[]>([]);
+  const [dismissedDefaultsByDate, setDismissedDefaultsByDate] = useState<Record<string, string[]>>({});
   const [selectedScheduledClassId, setSelectedScheduledClassId] = useState<string | null>(null);
   const [isScheduleClassModalOpen, setIsScheduleClassModalOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<ScheduledClass | null>(null);
+  const [cohortToDelete, setCohortToDelete] = useState<SchoolClass | null>(null);
   const [newClassDate, setNewClassDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [newClassSubject, setNewClassSubject] = useState('Combined Mathematics');
   const [newClassTimeSlot, setNewClassTimeSlot] = useState('08:00 - 09:30');
@@ -120,8 +123,23 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
     const unsub = onSnapshot(collection(db, 'scheduledClasses'), (snapshot) => {
       const list: ScheduledClass[] = [];
       snapshot.forEach((d) => list.push(d.data() as ScheduledClass));
-      list.sort((a, b) => a.timeSlot.localeCompare(b.timeSlot));
+      list.sort((a, b) => (a.timeSlot || '').localeCompare(b.timeSlot || ''));
       setScheduledClasses(list);
+    });
+    return () => unsub();
+  }, []);
+
+  // 2b. Real-time listener for dismissed default weekday sessions per date
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'scheduledClassOverrides'), (snapshot) => {
+      const map: Record<string, string[]> = {};
+      snapshot.forEach((d) => {
+        const data = d.data() as { date?: string; dismissedDefaultIds?: string[] };
+        if (data?.date && Array.isArray(data.dismissedDefaultIds)) {
+          map[data.date] = data.dismissedDefaultIds;
+        }
+      });
+      setDismissedDefaultsByDate(map);
     });
     return () => unsub();
   }, []);
@@ -281,7 +299,8 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
       setTimeout(() => setSyncMessage(null), 4000);
     } catch (err: any) {
       console.error('Error creating event:', err);
-      alert('Failed to save event: ' + err.message);
+      setSyncMessage('Failed to save event: ' + err.message);
+      setTimeout(() => setSyncMessage(null), 4000);
     } finally {
       setSavingEvent(false);
     }
@@ -308,70 +327,75 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
       setTimeout(() => setSyncMessage(null), 3000);
     } catch (err: any) {
       console.error('Error deleting event:', err);
-      alert('Failed to delete event: ' + err.message);
+      setSyncMessage('Failed to delete event: ' + err.message);
+      setTimeout(() => setSyncMessage(null), 4000);
     }
   };
 
-  // Get all scheduled classes for a specific date (real Firestore records or default timetable)
+  // Get all scheduled classes for a specific date (custom Firestore records + non-dismissed defaults)
   const getClassesForDate = (dateStr: string): ScheduledClass[] => {
     const directMatches = scheduledClasses.filter((sc) => sc.date === dateStr);
-    if (directMatches.length > 0) return directMatches;
+    const dismissedIds = dismissedDefaultsByDate[dateStr] || [];
+    const legacySessionOverride = directMatches.some((sc) => sc.id.startsWith('session-'));
 
-    // Standard A/L Science EM default weekday schedule
     const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-      return [
-        {
-          id: `default-${dateStr}-maths`,
-          classId: selectedClassId || 'general',
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '08:00 - 09:30',
-          periodName: 'Period 1',
-          subject: 'Combined Mathematics (Pure & Applied Mechanics)',
-          topic: 'Calculus Theorems & Vector Kinematics',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex - Hall 28',
-          createdAt: dateStr,
-        },
-        {
-          id: `default-${dateStr}-physics`,
-          classId: selectedClassId || 'general',
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '09:45 - 11:15',
-          periodName: 'Period 2',
-          subject: 'Physics (Mechanics, Optics & Electronics)',
-          topic: 'Rotational Dynamics & Wave Interference',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex - Physics Lab 1',
-          createdAt: dateStr,
-        },
-        {
-          id: `default-${dateStr}-chemistry`,
-          classId: selectedClassId || 'general',
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '11:30 - 13:00',
-          periodName: 'Period 3',
-          subject: 'Chemistry (Inorganic & Physical Chemistry)',
-          topic: 'Equilibrium Constant & Electrochemistry',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex - Chem Lab 2',
-          createdAt: dateStr,
-        },
-      ];
-    }
-    return [];
+    const weekdayDefaults: ScheduledClass[] =
+      !legacySessionOverride && dayOfWeek >= 1 && dayOfWeek <= 5
+        ? [
+            {
+              id: `default-${dateStr}-maths`,
+              classId: selectedClassId || 'general',
+              className: '2k28 Science EM',
+              date: dateStr,
+              timeSlot: '08:00 - 09:30',
+              periodName: 'Period 1',
+              subject: 'Combined Mathematics (Pure & Applied Mechanics)',
+              topic: 'Calculus Theorems & Vector Kinematics',
+              teacherId: userProfile?.userId || 'faculty',
+              teacherName: 'ZNC Science Project management',
+              room: 'Science Complex - Hall 28',
+              createdAt: dateStr,
+            },
+            {
+              id: `default-${dateStr}-physics`,
+              classId: selectedClassId || 'general',
+              className: '2k28 Science EM',
+              date: dateStr,
+              timeSlot: '09:45 - 11:15',
+              periodName: 'Period 2',
+              subject: 'Physics (Mechanics, Optics & Electronics)',
+              topic: 'Rotational Dynamics & Wave Interference',
+              teacherId: userProfile?.userId || 'faculty',
+              teacherName: 'ZNC Science Project management',
+              room: 'Science Complex - Physics Lab 1',
+              createdAt: dateStr,
+            },
+            {
+              id: `default-${dateStr}-chemistry`,
+              classId: selectedClassId || 'general',
+              className: '2k28 Science EM',
+              date: dateStr,
+              timeSlot: '11:30 - 13:00',
+              periodName: 'Period 3',
+              subject: 'Chemistry (Inorganic & Physical Chemistry)',
+              topic: 'Equilibrium Constant & Electrochemistry',
+              teacherId: userProfile?.userId || 'faculty',
+              teacherName: 'ZNC Science Project management',
+              room: 'Science Complex - Chem Lab 2',
+              createdAt: dateStr,
+            },
+          ].filter((def) => !dismissedIds.includes(def.id))
+        : [];
+
+    const combined = [...weekdayDefaults, ...directMatches];
+    combined.sort((a, b) => (a.timeSlot || '').localeCompare(b.timeSlot || ''));
+    return combined;
   };
 
-  // Add a class session to a specific date
+  // Add a class session to a specific date (strictly Teachers & Admins only)
   const handleCreateScheduledClass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClassDate || !newClassSubject.trim()) return;
+    if (!isTeacherOrAdmin || !newClassDate || !newClassSubject.trim()) return;
 
     setSavingScheduledClass(true);
     try {
@@ -391,14 +415,14 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
         subject: newClassSubject.trim(),
         topic: newClassTopic.trim() || undefined,
         teacherId: userProfile?.userId || 'faculty',
-        teacherName: userProfile?.fullName || 'Zahira Faculty',
+        teacherName: 'ZNC Science Project management',
         room: newClassRoom.trim() || 'Science Complex Hall 28',
         attendanceRecords: defaultRegister,
         attendanceTaken: false,
         createdAt: new Date().toISOString(),
       };
 
-      await setDoc(doc(db, 'scheduledClasses', classSessionId), newSession);
+      await setDoc(doc(db, 'scheduledClasses', classSessionId), sanitizeFirestoreDoc(newSession));
 
       // Also add corresponding calendar event so it appears in monthly view
       const eventId = `ev-class-${classSessionId}`;
@@ -412,10 +436,10 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
         classId: selectedClassId,
         location: newClassRoom,
         createdBy: userProfile?.userId || 'faculty',
-        createdByName: userProfile?.fullName || 'Zahira Faculty',
+        createdByName: 'ZNC Science Project management',
         createdAt: new Date().toISOString(),
       };
-      await setDoc(doc(db, 'schoolEvents', eventId), newEv);
+      await setDoc(doc(db, 'schoolEvents', eventId), sanitizeFirestoreDoc(newEv));
 
       setIsScheduleClassModalOpen(false);
       setNewClassTopic('');
@@ -424,45 +448,60 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
       setTimeout(() => setSyncMessage(null), 4000);
     } catch (err: any) {
       console.error('Failed to schedule class:', err);
-      alert('Error scheduling class: ' + err.message);
+      setSyncMessage('Error scheduling class: ' + err.message);
+      setTimeout(() => setSyncMessage(null), 4000);
     } finally {
       setSavingScheduledClass(false);
     }
   };
 
-  // Delete scheduled class session occurring on date (teacher and admin)
-  const handleDeleteScheduledClass = async (sessionClassId: string, subjectName: string) => {
-    if (!isTeacherOrAdmin) return;
-    if (!confirm(`Are you sure you want to remove the scheduled session "${subjectName}" occurring on ${attendanceDate}?`)) return;
+  // Delete scheduled class session occurring on date (strictly teacher and admin only, in-app confirmation)
+  const handleConfirmDeleteScheduledClass = async () => {
+    if (!sessionToDelete || !isTeacherOrAdmin) return;
+    const target = sessionToDelete;
+    setSessionToDelete(null);
+
     try {
-      if (sessionClassId.startsWith('default-')) {
-        const defaults = getClassesForDate(attendanceDate);
-        for (const c of defaults) {
-          if (c.id !== sessionClassId) {
-            await setDoc(doc(db, 'scheduledClasses', `session-${attendanceDate}-${c.subject.slice(0, 4)}`), {
-              ...c,
-              id: `session-${attendanceDate}-${c.subject.slice(0, 4)}`,
-            });
-          }
-        }
+      if (target.id.startsWith('default-')) {
+        const currentDismissed = dismissedDefaultsByDate[attendanceDate] || [];
+        const updatedDismissed = Array.from(new Set([...currentDismissed, target.id]));
+        setDismissedDefaultsByDate((prev) => ({
+          ...prev,
+          [attendanceDate]: updatedDismissed,
+        }));
+        await setDoc(
+          doc(db, 'scheduledClassOverrides', attendanceDate),
+          {
+            date: attendanceDate,
+            dismissedDefaultIds: updatedDismissed,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
       } else {
-        await deleteDoc(doc(db, 'scheduledClasses', sessionClassId));
-        await deleteDoc(doc(db, 'schoolEvents', `ev-class-${sessionClassId}`)).catch(() => {});
+        setScheduledClasses((prev) => prev.filter((sc) => sc.id !== target.id));
+        await deleteDoc(doc(db, 'scheduledClasses', target.id));
+        await deleteDoc(doc(db, 'schoolEvents', `ev-class-${target.id}`)).catch(() => {});
       }
       setSelectedScheduledClassId(null);
+      setSyncMessage(`Removed academic session "${target.subject}" on ${attendanceDate}.`);
+      setTimeout(() => setSyncMessage(null), 3500);
     } catch (err) {
       console.error('Failed to remove scheduled class:', err);
     }
   };
 
-  // Delete class cohort (teacher and admin)
-  const handleDeleteClassCohort = async () => {
-    if (!selectedClassId || !isTeacherOrAdmin) return;
-    const targetCohort = classes.find((c) => c.id === selectedClassId);
-    if (!confirm(`Are you sure you want to remove the class cohort "${targetCohort?.name || selectedClassId}"?`)) return;
+  // Delete class cohort (teacher and admin, in-app confirmation)
+  const handleConfirmDeleteClassCohort = async () => {
+    if (!cohortToDelete || !isTeacherOrAdmin) return;
+    const targetId = cohortToDelete.id;
+    const targetName = cohortToDelete.name;
+    setCohortToDelete(null);
     try {
-      await deleteDoc(doc(db, 'classes', selectedClassId));
+      await deleteDoc(doc(db, 'classes', targetId));
       setSelectedClassId('');
+      setSyncMessage(`Removed class cohort "${targetName}".`);
+      setTimeout(() => setSyncMessage(null), 3500);
     } catch (err) {
       console.error('Failed to delete class cohort:', err);
     }
@@ -510,7 +549,8 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
       setTimeout(() => setAttendanceSaved(false), 3000);
     } catch (err: any) {
       console.error('Failed to save attendance:', err);
-      alert('Error saving attendance: ' + err.message);
+      setSyncMessage('Error saving attendance: ' + err.message);
+      setTimeout(() => setSyncMessage(null), 4000);
     }
   };
 
@@ -586,7 +626,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
     doc.setFontSize(8.5);
     doc.setTextColor(51, 65, 85);
     doc.text(`Cohort: 2k28 Science EM • Total Classes Conducted Today: ${classesToRender.length}`, 24, 52);
-    doc.text(`Supervisor: ${userProfile?.fullName || 'Faculty Lead'} (${userProfile?.role === 'admin' ? 'Faculty Directorate' : userProfile?.role || 'Teacher'})`, 115, 52);
+    doc.text('Supervisor: ZNC Science Project management', 115, 52);
 
     let y = 65;
 
@@ -707,7 +747,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(30, 64, 175);
-    doc.text('Zahira College Mawanella Science Project management', 20, y);
+    doc.text('ZNC Science Project management', 20, y);
 
     y += 5;
     doc.setFont('helvetica', 'normal');
@@ -864,16 +904,16 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
       )}
 
       {/* View Tabs */}
-      <div className="flex border-b border-stone-200">
+      <div className="flex overflow-x-auto no-scrollbar border-b border-stone-200">
         <button
           onClick={() => setActiveTab('events')}
-          className={`flex items-center gap-2 border-b-2 py-3 px-5 text-xs font-bold transition-colors ${
+          className={`flex items-center gap-2 border-b-2 py-3 px-4 sm:px-5 text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
             activeTab === 'events'
               ? 'border-stone-900 text-stone-900'
               : 'border-transparent text-stone-500 hover:text-stone-700'
           }`}
         >
-          <CalendarIcon className="w-4 h-4" />
+          <CalendarIcon className="w-4 h-4 shrink-0" />
           <span>School Events & Holidays</span>
           <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] text-stone-700 font-semibold">
             {schoolEvents.length}
@@ -885,14 +925,14 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
             setActiveTab('attendance');
             setAttendanceDate(selectedDateStr);
           }}
-          className={`flex items-center gap-2 border-b-2 py-3 px-5 text-xs font-bold transition-colors ${
+          className={`flex items-center gap-2 border-b-2 py-3 px-4 sm:px-5 text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
             activeTab === 'attendance'
               ? 'border-stone-900 text-stone-900'
               : 'border-transparent text-stone-500 hover:text-stone-700'
           }`}
         >
-          <CalendarCheck2 className="w-4 h-4" />
-          <span>Student Attendance Calendar & Roll-Call</span>
+          <CalendarCheck2 className="w-4 h-4 shrink-0" />
+          <span>Attendance Calendar & Roll-Call</span>
           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-800 font-semibold">
             {totalStudents} Scholars
           </span>
@@ -917,9 +957,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {/* Event Type Filter */}
-                  <div className="flex items-center gap-1 rounded-lg border border-stone-200 p-0.5 text-[11px] font-semibold">
+                  <div className="flex items-center gap-1 rounded-lg border border-stone-200 p-0.5 text-[11px] font-semibold overflow-x-auto no-scrollbar max-w-full">
                     <button
                       onClick={() => setEventTypeFilter('all')}
                       className={`rounded px-2 py-1 ${
@@ -986,7 +1026,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
               <div className="grid grid-cols-7 gap-1 pt-2">
                 {/* Empty offset days */}
                 {Array.from({ length: firstDayIndex }).map((_, i) => (
-                  <div key={`empty-${i}`} className="h-20 sm:h-24 rounded-xl bg-stone-50/40 p-1" />
+                  <div key={`empty-${i}`} className="h-16 sm:h-24 rounded-xl bg-stone-50/40 p-1" />
                 ))}
 
                 {/* Month Days */}
@@ -1002,7 +1042,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                     <div
                       key={dateStr}
                       onClick={() => setSelectedDateStr(dateStr)}
-                      className={`h-20 sm:h-24 rounded-xl border p-1.5 flex flex-col justify-between transition-all cursor-pointer overflow-hidden ${
+                      className={`h-16 sm:h-24 rounded-xl border p-1 sm:p-1.5 flex flex-col justify-between transition-all cursor-pointer overflow-hidden ${
                         isSelected
                           ? 'border-stone-900 bg-amber-50/40 shadow-xs ring-1 ring-stone-900'
                           : isToday
@@ -1358,7 +1398,11 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                   </select>
                   {isTeacherOrAdmin && selectedClassId && (
                     <button
-                      onClick={handleDeleteClassCohort}
+                      type="button"
+                      onClick={() => {
+                        const targetCohort = classes.find((c) => c.id === selectedClassId);
+                        if (targetCohort) setCohortToDelete(targetCohort);
+                      }}
                       className="p-1.5 rounded-lg border border-stone-200 hover:bg-rose-50 hover:text-rose-600 text-stone-400 transition-colors"
                       title="Remove class cohort"
                     >
@@ -1509,11 +1553,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                     </span>
                     {isTeacherOrAdmin && (
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteScheduledClass(cls.id, cls.subject);
+                          setSessionToDelete(cls);
                         }}
-                        className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors ml-1"
+                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors ml-1"
                         title="Remove scheduled class occurring on this date"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1608,12 +1653,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                             </span>
                           </td>
 
-                          <td className="py-3 px-4 text-right">
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
                             {isTeacherOrAdmin ? (
-                              <div className="inline-flex items-center rounded-lg border border-stone-200 bg-white p-0.5 shadow-2xs">
+                              <div className="inline-flex items-center rounded-lg border border-stone-200 bg-white p-0.5 shadow-2xs whitespace-nowrap">
                                 <button
                                   onClick={() => handleAttendanceStatusChange(student.id, 'present')}
-                                  className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                                  className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                     status === 'present'
                                       ? 'bg-emerald-600 text-white'
                                       : 'text-stone-600 hover:bg-stone-100'
@@ -1623,7 +1668,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                                 </button>
                                 <button
                                   onClick={() => handleAttendanceStatusChange(student.id, 'absent')}
-                                  className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                                  className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                     status === 'absent'
                                       ? 'bg-rose-600 text-white'
                                       : 'text-stone-600 hover:bg-stone-100'
@@ -1633,7 +1678,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                                 </button>
                                 <button
                                   onClick={() => handleAttendanceStatusChange(student.id, 'late')}
-                                  className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                                  className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                     status === 'late'
                                       ? 'bg-amber-500 text-white'
                                       : 'text-stone-600 hover:bg-stone-100'
@@ -1643,7 +1688,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                                 </button>
                                 <button
                                   onClick={() => handleAttendanceStatusChange(student.id, 'excused')}
-                                  className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                                  className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                     status === 'excused'
                                       ? 'bg-sky-600 text-white'
                                       : 'text-stone-600 hover:bg-stone-100'
@@ -1691,7 +1736,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
                 <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[10px]">
                   Category / Event Type
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setEventType('holiday')}
@@ -1753,7 +1798,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
               </div>
 
               {/* Dates */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[10px]">
                     Date (Start)
@@ -1780,7 +1825,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
               </div>
 
               {/* Time & Location */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[10px]">
                     Time (e.g. 08:30)
@@ -1915,7 +1960,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
             </div>
 
             <form onSubmit={handleCreateScheduledClass} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-700 uppercase tracking-wider mb-1">
                     Class Date *
@@ -2024,6 +2069,78 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
         onClose={() => setIsPreviewOpen(false)}
         pdfData={previewPDFData}
       />
+
+      {/* CONFIRM DELETE ACADEMIC SESSION MODAL (IFrame-safe, Teachers & Admins Only) */}
+      {sessionToDelete && isTeacherOrAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-stone-900">Remove Academic Session?</h3>
+                <p className="text-[11px] text-stone-500">Scheduled on {attendanceDate}</p>
+              </div>
+            </div>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Remove <strong className="text-stone-900">&quot;{sessionToDelete.subject}&quot;</strong> ({sessionToDelete.timeSlot}) from {attendanceDate}?
+            </p>
+            <div className="flex justify-end gap-2 pt-3 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => setSessionToDelete(null)}
+                className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteScheduledClass}
+                className="rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-xs font-bold text-white shadow-xs"
+              >
+                Yes, Remove Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE CLASS COHORT MODAL (IFrame-safe, Teachers & Admins Only) */}
+      {cohortToDelete && isTeacherOrAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-stone-900">Remove Class Cohort?</h3>
+                <p className="text-[11px] text-stone-500">Teachers &amp; Admins Only</p>
+              </div>
+            </div>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Are you sure you want to remove the class cohort <strong className="text-stone-900">&quot;{cohortToDelete.name}&quot;</strong>?
+            </p>
+            <div className="flex justify-end gap-2 pt-3 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => setCohortToDelete(null)}
+                className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteClassCohort}
+                className="rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-xs font-bold text-white shadow-xs"
+              >
+                Yes, Remove Cohort
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

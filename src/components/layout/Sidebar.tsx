@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  Home,
+  LayoutDashboard,
   ShieldCheck,
   CalendarCheck2,
   Calendar,
@@ -12,15 +12,25 @@ import {
   User,
   LogOut,
   LogIn,
-  LayoutGrid,
   FlaskConical,
   Sparkles,
   CheckCircle2,
   MessagesSquare,
   MessageSquare,
+  Users,
+  Settings,
+  GraduationCap,
+  BrainCircuit,
+  ChevronLeft,
+  ChevronRight,
+  School,
   X,
+  Swords,
+  Trophy,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useSiteConfig } from '../../context/SiteConfigContext';
+import { ZahiraLogo } from '../common/ZahiraLogo';
 
 interface SidebarProps {
   currentPage: string;
@@ -28,253 +38,296 @@ interface SidebarProps {
   onOpenAuthModal?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  onCloseMobile?: () => void;
+}
+
+interface NavItem {
+  id: string;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+}
+
+interface NavSection {
+  title: string;
+  items: NavItem[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPage,
   onNavigate,
   onOpenAuthModal,
+  collapsed = false,
+  onToggleCollapse,
+  onCloseMobile,
 }) => {
   const { userProfile, activeRole, signOut } = useAuth();
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const { siteConfig } = useSiteConfig();
+  const [menuFilter, setMenuFilter] = React.useState('');
 
-  // Directly accessible squircle buttons in the floating capsule
-  const primaryButtons = [
+  const sections: NavSection[] = [
     {
-      id: 'dashboard',
-      label: 'Home Dashboard',
-      icon: Home,
-      gradient: 'from-[#00b4d8] via-[#0096c7] to-[#0077b6]',
-      activeGlow: 'ring-2 ring-sky-400 ring-offset-2 dark:ring-offset-slate-900',
+      title: 'Overview',
+      items: [
+        { id: 'dashboard', label: 'Home Dashboard', hint: 'Overview, stats & quick shortcuts', icon: LayoutDashboard },
+        ...(activeRole === 'admin'
+          ? [{ id: 'admin_panel', label: 'Admin Master Panel', hint: 'Full school control & settings', icon: ShieldCheck, badge: 'Admin' }]
+          : []),
+        ...(activeRole === 'teacher'
+          ? [{ id: 'teacher_panel', label: 'Teacher Workspace', hint: 'Classes, grading & faculty tools', icon: ShieldCheck, badge: 'Faculty' }]
+          : []),
+      ],
+    },
+    {
+      title: 'Competitions & Rankings',
+      items: [
+        { id: 'pvp_quiz', label: 'PvP Quiz Arena', hint: '1v1 live Gemini AI quiz duels', icon: Swords, badge: 'Live' },
+        { id: 'leaderboard', label: 'Leaderboards', hint: 'Top 20 week, month & year', icon: Trophy },
+      ],
+    },
+    {
+      title: 'Academic & Classes',
+      items: [
+        { id: 'classes', label: 'Classes & Cohorts', hint: 'Batch groups & class sessions', icon: GraduationCap },
+        { id: 'subjects', label: 'Subjects & Syllabus', hint: 'Physics, Chem, Maths & Bio units', icon: BookOpen },
+        { id: 'materials', label: 'Learning Materials', hint: 'Notes, past papers & PDF packs', icon: ShoppingBag },
+        { id: 'assignments', label: 'Assignments', hint: 'Tasks, due dates & submissions', icon: FileText },
+        { id: 'quizzes', label: 'Quizzes & Tests', hint: 'Practice tests & instant scoring', icon: CheckCircle2 },
+        { id: 'assessments', label: 'Marks & Assessments', hint: 'Term exam marks & report PDFs', icon: BarChart3 },
+        { id: 'labs', label: 'Virtual Science Labs', hint: 'Interactive science simulations', icon: FlaskConical },
+      ],
+    },
+    {
+      title: 'Attendance & Schedule',
+      items: [
+        { id: 'attendance', label: 'Attendance Register', hint: 'Daily roll-call, QR & Google Calendar', icon: CalendarCheck2 },
+        { id: 'calendar', label: 'Academic Calendar', hint: 'Holidays, exams & class schedule', icon: Calendar },
+      ],
+    },
+    {
+      title: 'Gemini AI & Communication',
+      items: [
+        { id: 'tutor', label: 'Gemini AI Tutor', hint: 'Ask any math or science question', icon: Sparkles, badge: 'AI' },
+        ...(activeRole === 'teacher' || activeRole === 'admin'
+          ? [{ id: 'teacher_assistant', label: 'Teacher AI Assistant', hint: 'Lesson plans, notes & rubrics', icon: BrainCircuit }]
+          : []),
+        { id: 'messages', label: 'Private Messages', hint: '1-on-1 consultations & requests', icon: MessageSquare },
+        { id: 'announcements', label: 'School Notices', hint: 'Official circulars & bulletins', icon: Bell },
+        { id: 'discussions', label: 'Discussion Room', hint: 'Live group chat, file uploads & topics', icon: MessagesSquare, badge: 'Chat' },
+      ],
     },
     ...(activeRole === 'admin'
       ? [
           {
-            id: 'admin_panel',
-            label: 'Admin Master Panel',
-            icon: ShieldCheck,
-            gradient: 'from-[#4f46e5] via-[#4338ca] to-[#312e81]',
-            activeGlow: 'ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900',
-          },
-        ]
-      : activeRole === 'teacher'
-      ? [
-          {
-            id: 'teacher_panel',
-            label: 'Teacher Workspace',
-            icon: ShieldCheck,
-            gradient: 'from-[#4f46e5] via-[#4338ca] to-[#312e81]',
-            activeGlow: 'ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900',
+            title: 'Administration',
+            items: [
+              { id: 'users_admin', label: 'User Directory', hint: 'Manage students, teachers & IDs', icon: Users },
+              { id: 'settings', label: 'Platform Settings', hint: 'Portal configuration & preferences', icon: Settings },
+            ],
           },
         ]
       : []),
     {
-      id: 'messages',
-      label: 'Private Messages',
-      icon: MessageSquare,
-      gradient: 'from-[#6366f1] via-[#4f46e5] to-[#4338ca]',
-      activeGlow: 'ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'calendar',
-      label: 'Calendar & Timetable',
-      icon: CalendarCheck2,
-      gradient: 'from-[#0284c7] to-[#0369a1]',
-      activeGlow: 'ring-2 ring-cyan-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'classes',
-      label: 'Classes & Cohorts',
-      icon: BookOpen,
-      gradient: 'from-[#10b981] to-[#059669]',
-      activeGlow: 'ring-2 ring-emerald-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'assignments',
-      label: 'Papers & Coursework',
-      icon: FileText,
-      gradient: 'from-[#22c55e] to-[#16a34a]',
-      activeGlow: 'ring-2 ring-green-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'assessments',
-      label: 'Marks & Assessments',
-      icon: BarChart3,
-      gradient: 'from-[#ec4899] to-[#d946ef]',
-      activeGlow: 'ring-2 ring-pink-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'materials',
-      label: 'Store & Materials',
-      icon: ShoppingBag,
-      gradient: 'from-[#8b5cf6] to-[#6366f1]',
-      activeGlow: 'ring-2 ring-purple-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'announcements',
-      label: 'School Notices',
-      icon: Bell,
-      gradient: 'from-[#f59e0b] to-[#ea580c]',
-      activeGlow: 'ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-slate-900',
-    },
-    {
-      id: 'profile',
-      label: 'User Profile',
-      icon: User,
-      gradient: 'from-[#eab308] to-[#ca8a04]',
-      activeGlow: 'ring-2 ring-yellow-400 ring-offset-2 dark:ring-offset-slate-900',
+      title: 'Account',
+      items: [{ id: 'profile', label: 'My Profile', hint: 'Student ID, role & account info', icon: User }],
     },
   ];
 
-  const moreTools = [
-    { id: 'labs', label: 'Virtual Science Labs', icon: FlaskConical, desc: 'Interactive practical simulations' },
-    { id: 'tutor', label: 'Socrates AI Tutor', icon: Sparkles, desc: 'Step-by-step problem solver' },
-    { id: 'attendance', label: 'Daily Roll-Call & QR', icon: CalendarCheck2, desc: 'Attendance register' },
-    { id: 'quizzes', label: 'Quizzes & Tests', icon: CheckCircle2, desc: 'Self-assessment tests' },
-    { id: 'discussions', label: 'Discussion Forums', icon: MessagesSquare, desc: 'Peer study circles' },
-    { id: 'messages', label: 'Direct Messages', icon: MessageSquare, desc: 'Contact faculty' },
-  ];
-
-  const handleLogoutOrLogin = () => {
-    if (userProfile) {
-      signOut();
-    } else {
-      onOpenAuthModal?.();
-    }
-  };
+  const normalizedFilter = menuFilter.trim().toLowerCase();
+  const filteredSections = normalizedFilter
+    ? sections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter(
+            (item) =>
+              item.label.toLowerCase().includes(normalizedFilter) ||
+              item.hint.toLowerCase().includes(normalizedFilter)
+          ),
+        }))
+        .filter((section) => section.items.length > 0)
+    : sections;
 
   return (
-    <aside className="relative flex flex-col items-center select-none py-2 px-1">
-      {/* Floating Capsule Container with side view scroll bar */}
-      <div className="w-14 sm:w-16 max-h-[calc(100vh-5.5rem)] overflow-y-auto side-view-scrollbar rounded-[28px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-2 sm:p-2.5 shadow-lg shadow-slate-200/50 dark:shadow-none flex flex-col items-center gap-2 sm:gap-2.5 transition-all duration-200">
-        {/* Primary Buttons */}
-        {primaryButtons.map((btn) => {
-          const Icon = btn.icon;
-          const isActive = currentPage === btn.id;
-
-          return (
-            <div key={btn.id} className="relative group">
-              <button
-                onClick={() => {
-                  onNavigate(btn.id);
-                  setShowMoreMenu(false);
-                }}
-                className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-b ${
-                  btn.gradient
-                } flex items-center justify-center text-white shadow-xs transition-all duration-150 transform hover:scale-105 active:scale-95 ${
-                  isActive ? btn.activeGlow : 'hover:opacity-95'
-                }`}
-                title={btn.label}
-                aria-label={btn.label}
-              >
-                <Icon className="w-5 h-5 drop-shadow-xs" />
-              </button>
-
-              {/* Tooltip on Hover */}
-              <div className="hidden md:group-hover:flex absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold whitespace-nowrap shadow-xl pointer-events-none items-center gap-1.5 animate-in fade-in zoom-in-95">
-                <span>{btn.label}</span>
-              </div>
+    <aside
+      className={`flex flex-col h-full max-h-dvh min-h-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-200 select-none shrink-0 ${
+        collapsed ? 'w-20' : 'w-[84vw] max-w-[300px] md:w-64'
+      }`}
+    >
+      {/* Top Branding Bar inside Sidebar */}
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+        {!collapsed ? (
+          <div className="flex items-center gap-2.5 min-w-0">
+            <ZahiraLogo size="sm" />
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-blue-950 dark:text-slate-100 truncate">
+                {siteConfig.schoolName || 'Zahira College Mawanella'}
+              </p>
+              <p className="text-[10px] font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider truncate">
+                {activeRole === 'guest' ? 'Visitor Mode' : `${activeRole} Portal`}
+              </p>
             </div>
-          );
-        })}
-
-        {/* Exit / Logout Button */}
-        <div className="relative group">
-          <button
-            onClick={handleLogoutOrLogin}
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-b from-[#ef4444] to-[#dc2626] flex items-center justify-center text-white shadow-xs transition-all duration-150 transform hover:scale-105 active:scale-95 hover:opacity-95"
-            title={userProfile ? 'Sign Out' : 'Sign In'}
-            aria-label={userProfile ? 'Sign Out' : 'Sign In'}
-          >
-            {userProfile ? (
-              <LogOut className="w-5 h-5 drop-shadow-xs" />
-            ) : (
-              <LogIn className="w-5 h-5 drop-shadow-xs" />
-            )}
-          </button>
-          <div className="hidden md:group-hover:flex absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold whitespace-nowrap shadow-xl pointer-events-none items-center gap-1.5 animate-in fade-in zoom-in-95">
-            <span>{userProfile ? 'Sign Out' : 'Sign In'}</span>
           </div>
-        </div>
-
-        {/* More Tools Drawer */}
-        <div className="relative group pt-1 border-t border-slate-100 dark:border-slate-800 w-full flex justify-center">
-          <button
-            onClick={() => setShowMoreMenu(!showMoreMenu)}
-            className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
-              showMoreMenu
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-            title="More Modules & Labs"
-            aria-label="More modules"
-          >
-            <LayoutGrid className="w-4 h-4" />
-          </button>
-
-          <div className="hidden md:group-hover:flex absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold whitespace-nowrap shadow-xl pointer-events-none items-center gap-1.5 animate-in fade-in zoom-in-95">
-            <span>More Modules & Labs</span>
+        ) : (
+          <div className="hidden md:flex justify-center w-full">
+            <ZahiraLogo size="xs" />
           </div>
-        </div>
+        )}
+
+        {onCloseMobile && (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="md:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-auto"
+            title="Close Menu"
+            aria-label="Close Menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
+
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="hidden md:flex p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-auto"
+            title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            aria-label={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+          >
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+        )}
       </div>
 
-      {/* Floating More Tools Popover Modal */}
-      {showMoreMenu && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
-                  <LayoutGrid className="w-4 h-4" />
-                </div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                  More Science Modules
-                </h3>
-              </div>
+      {/* Quick Filter & Scroll Hint (especially helpful in mobile left drawer) */}
+      {!collapsed && (
+        <div className="px-3 pt-2.5 pb-1.5 border-b border-slate-100/80 dark:border-slate-800/80 shrink-0 md:hidden">
+          <input
+            type="text"
+            value={menuFilter}
+            onChange={(e) => setMenuFilter(e.target.value)}
+            placeholder="Find a page or scroll below..."
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          />
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 px-1 pt-1 flex items-center justify-between">
+            <span>Scroll menu to choose where to land</span>
+            {menuFilter && (
               <button
-                onClick={() => setShowMoreMenu(false)}
-                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                type="button"
+                onClick={() => setMenuFilter('')}
+                className="text-blue-600 dark:text-blue-400 font-semibold"
               >
-                <X className="w-4 h-4" />
+                Clear
               </button>
-            </div>
-
-            <div className="mt-3 space-y-1.5 max-h-80 overflow-y-auto">
-              {moreTools.map((t) => {
-                const ToolIcon = t.icon;
-                const isSelected = currentPage === t.id;
-
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => {
-                      onNavigate(t.id);
-                      setShowMoreMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left text-xs transition-colors ${
-                      isSelected
-                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-900'
-                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
-                      <ToolIcon className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                        {t.label}
-                      </p>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                        {t.desc}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+            )}
+          </p>
         </div>
       )}
+
+      {/* Scrollable Navigation Links with visible Side View Scrollbar */}
+      <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y sidebar-menu-scroll side-view-scrollbar px-3 py-3.5 space-y-5">
+        {filteredSections.length === 0 ? (
+          <div className="px-3 py-8 text-center text-xs text-slate-400">
+            No matching pages found.
+          </div>
+        ) : (
+          filteredSections.map((section) => (
+            <div key={section.title}>
+              {!collapsed && (
+                <p className="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {section.title}
+                </p>
+              )}
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentPage === item.id;
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      onClick={() => {
+                        onNavigate(item.id);
+                        setMenuFilter('');
+                      }}
+                      title={collapsed ? item.label : item.hint}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-semibold transition-all ${
+                        collapsed ? 'justify-center' : 'justify-between'
+                      } ${
+                        isActive
+                          ? 'bg-blue-900 text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-950 dark:hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Icon
+                          className={`w-4 h-4 shrink-0 ${
+                            isActive ? 'text-red-400' : 'text-slate-400 dark:text-slate-400'
+                          }`}
+                        />
+                        {!collapsed && (
+                          <div className="min-w-0">
+                            <span className="block truncate leading-snug">{item.label}</span>
+                            {onCloseMobile && (
+                              <span
+                                className={`block md:hidden text-[10px] font-normal truncate mt-0.5 ${
+                                  isActive ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'
+                                }`}
+                              >
+                                {item.hint}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {!collapsed && item.badge && (
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${
+                            isActive
+                              ? 'bg-red-600 text-white'
+                              : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </nav>
+
+      {/* Bottom Auth Action Footer */}
+      <div className="p-3 border-t border-slate-100 dark:border-slate-800 shrink-0 pb-safe">
+        {userProfile ? (
+          <button
+            type="button"
+            onClick={signOut}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors ${
+              collapsed ? 'justify-center' : ''
+            }`}
+            title="Sign Out"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>Sign Out</span>}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenAuthModal}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-bold bg-blue-900 hover:bg-blue-950 text-white transition-colors shadow-xs ${
+              collapsed ? 'justify-center' : ''
+            }`}
+            title="Sign In"
+          >
+            <LogIn className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>Sign In / Register</span>}
+          </button>
+        )}
+      </div>
     </aside>
   );
 };

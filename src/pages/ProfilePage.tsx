@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { User, Mail, Shield, Save, CheckCircle2, Phone, BookOpen, GraduationCap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Save, CheckCircle2, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { OFFICIAL_STUDENT_SUBJECTS } from '../types';
 
 export const ProfilePage: React.FC = () => {
   const { userProfile, activeRole } = useAuth();
@@ -10,10 +11,32 @@ export const ProfilePage: React.FC = () => {
   const [bio, setBio] = useState(userProfile?.bio || 'Academic scholar at Zahira College 2k28 Science EM.');
   const [phone, setPhone] = useState(userProfile?.phone || '+94 77 123 4567');
   const [avatarUrl, setAvatarUrl] = useState(userProfile?.avatarUrl || '');
+  const [enrolledSubjects, setEnrolledSubjects] = useState<string[]>(
+    userProfile?.enrolledSubjects && userProfile.enrolledSubjects.length > 0
+      ? userProfile.enrolledSubjects
+      : []
+  );
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    if (userProfile) {
+      setFullName(userProfile.fullName || 'Zahira Academic Member');
+      setBio(userProfile.bio || 'Academic scholar at Zahira College 2k28 Science EM.');
+      setPhone(userProfile.phone || '+94 77 123 4567');
+      setAvatarUrl(userProfile.avatarUrl || '');
+      setEnrolledSubjects(userProfile.enrolledSubjects || []);
+    }
+  }, [userProfile]);
+
+  const toggleSubject = (subj: string) => {
+    setEnrolledSubjects((prev) =>
+      prev.includes(subj) ? prev.filter((s) => s !== subj) : [...prev, subj]
+    );
+  };
 
   const handleSaveProfile = async () => {
     if (!userProfile?.userId) return;
+    const updatedAt = new Date().toISOString();
     try {
       await setDoc(
         doc(db, 'userProfiles', userProfile.userId),
@@ -22,10 +45,31 @@ export const ProfilePage: React.FC = () => {
           bio,
           phone,
           avatarUrl,
-          updatedAt: new Date().toISOString(),
+          enrolledSubjects,
+          updatedAt,
         },
         { merge: true }
       );
+      if (activeRole === 'student') {
+        await setDoc(
+          doc(db, 'students', userProfile.userId),
+          {
+            fullName,
+            enrolledSubjects,
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+      try {
+        const stored = localStorage.getItem('zahira_auth_session');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          localStorage.setItem(
+            'zahira_auth_session',
+            JSON.stringify({ ...parsed, fullName, bio, phone, avatarUrl, enrolledSubjects, updatedAt })
+          );
+        }
+      } catch {}
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (e) {
@@ -41,7 +85,7 @@ export const ProfilePage: React.FC = () => {
             User Profile & Academic Credentials
           </h2>
           <p className="text-xs text-stone-500 mt-1">
-            Manage your personal academic identity and communication details
+            Manage your personal academic identity, joined subjects, and communication details
           </p>
         </div>
 
@@ -75,6 +119,18 @@ export const ProfilePage: React.FC = () => {
             </div>
             <p className="text-xs text-stone-500 font-mono mt-0.5">{userProfile?.email}</p>
             <p className="text-xs text-stone-600 mt-1.5 max-w-md">{bio}</p>
+            {enrolledSubjects.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {enrolledSubjects.map((s) => (
+                  <span
+                    key={s}
+                    className="rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-bold text-blue-900"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -139,6 +195,40 @@ export const ProfilePage: React.FC = () => {
               placeholder="https://images.unsplash.com/..."
               className="w-full rounded-xl border border-stone-200 bg-stone-50 p-2.5 text-stone-800 focus:bg-white focus:outline-none"
             />
+          </div>
+
+          {/* Joined Subjects Selection for 50-Question PvP Quizzes */}
+          <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50/40 p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="font-bold text-blue-950 uppercase tracking-wider text-[11px]">
+                Joined Subjects (Used in 50-Question PvP Quizzes)
+              </label>
+              <span className="text-[11px] font-bold text-blue-700 tabular-nums">
+                {enrolledSubjects.length} / {OFFICIAL_STUDENT_SUBJECTS.length} selected
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {OFFICIAL_STUDENT_SUBJECTS.map((subj, idx) => {
+                const isSelected = enrolledSubjects.includes(subj);
+                return (
+                  <button
+                    key={subj}
+                    type="button"
+                    onClick={() => toggleSubject(subj)}
+                    className={`min-h-[42px] flex items-center justify-between gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
+                      isSelected
+                        ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
+                        : 'bg-white text-stone-700 border-stone-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <span className="truncate">
+                      {idx + 1}) {subj}
+                    </span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-amber-300 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="md:col-span-2">

@@ -14,6 +14,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useSiteConfig } from '../../context/SiteConfigContext';
+import { ZahiraLogo } from '../common/ZahiraLogo';
 
 interface GuestPortalLandingProps {
   onOpenAuthModal: () => void;
@@ -32,9 +33,11 @@ export const GuestPortalLanding: React.FC<GuestPortalLandingProps> = ({
       <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-800 p-6 md:p-10 text-white shadow-lg relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full bg-red-600 px-3.5 py-1 text-xs font-bold text-white shadow-xs">
-              <School className="w-3.5 h-3.5" />
-              <span>{siteConfig.schoolName}</span>
+            <div className="flex items-center gap-3">
+              <ZahiraLogo size="md" className="shadow-md" />
+              <div className="inline-flex items-center gap-2 rounded-full bg-red-600 px-3.5 py-1 text-xs font-bold text-white shadow-xs">
+                <span>{siteConfig.schoolName || 'Zahira College Mawanella'}</span>
+              </div>
             </div>
             <h1 className="font-serif text-3xl md:text-4xl font-bold tracking-tight text-white mt-3 leading-tight">
               {siteConfig.cohortName} Academic Portal
@@ -101,7 +104,7 @@ export const GuestPortalLanding: React.FC<GuestPortalLandingProps> = ({
           </div>
           <h3 className="font-serif text-lg font-bold text-blue-950">Student Scholars</h3>
           <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-            Access past papers, lecture slides, interactive quizzes, attendance tracking, and 24/7 Socrates Gemini Flash AI tutoring tailored to your science stream.
+            Access past papers, lecture slides, interactive quizzes, attendance tracking, and 24/7 Gemini Flash AI tutoring tailored to your science stream.
           </p>
         </div>
 

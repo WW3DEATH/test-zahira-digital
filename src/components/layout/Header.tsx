@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { ZahiraLogo } from '../common/ZahiraLogo';
 
 interface HeaderProps {
   onSearch?: (query: string) => void;
@@ -57,48 +58,48 @@ export const Header: React.FC<HeaderProps> = ({
   const initials = getInitials(displayName);
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 sm:px-6 md:px-8 transition-colors select-none shadow-2xs">
-      {/* LEFT: ZNC SCIENCE PROJECT BRANDING */}
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 flex h-14 md:h-16 w-full items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 sm:px-6 md:px-8 transition-colors select-none shadow-2xs">
+      {/* LEFT: MOBILE MENU BUTTON + ZNC SCIENCE PROJECT BRANDING */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         {onToggleMobileMenu && (
           <button
+            type="button"
             onClick={onToggleMobileMenu}
-            className="md:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Open Menu"
-            aria-label="Open Menu"
+            className="md:hidden min-h-[44px] min-w-[44px] px-2.5 flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-700 hover:text-blue-900 dark:hover:text-white active:scale-95 transition-all shrink-0 shadow-2xs"
+            title="Open Navigation Menu"
+            aria-label="Open Navigation Menu"
           >
             <Menu className="w-5 h-5" />
+            <span className="text-[11px] font-bold hidden min-[400px]:inline">Menu</span>
           </button>
         )}
 
         <div
           onClick={() => onNavigate?.('dashboard')}
-          className="flex items-center gap-2.5 cursor-pointer group"
-          title="ZNC Science Project • Zahira College Mawanella"
+          className="flex items-center gap-2 sm:gap-2.5 cursor-pointer group min-w-0"
+          title="Zahira College Mawanella • ZNC Science Project"
         >
-          {/* ZNC Monogram Crest Badge */}
-          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-blue-900 to-indigo-950 text-amber-400 flex items-center justify-center font-serif font-black text-xs sm:text-sm border border-blue-800 group-hover:scale-105 transition-transform shadow-xs">
-            <span>ZNC</span>
-          </div>
+          {/* Official Zahira College Mawanella Crest */}
+          <ZahiraLogo size="sm" className="group-hover:scale-105 transition-transform" />
 
-          <div className="flex flex-col">
-            <span className="font-serif text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-none">
+          <div className="flex flex-col min-w-0">
+            <span className="font-serif text-sm sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-none truncate">
               ZNC Science Project
             </span>
-            <span className="text-[10px] font-bold text-red-600 dark:text-red-400 tracking-wider uppercase mt-0.5">
-              2k28 Science EM
+            <span className="text-[9px] sm:text-[10px] font-bold text-red-600 dark:text-red-400 tracking-wider uppercase mt-0.5 truncate">
+              Zahira College Mawanella · 2k28 Science EM
             </span>
           </div>
         </div>
       </div>
 
       {/* CENTER / RIGHT ACTION SHORTCUTS: ROLE-RESTRICTED CONTROLS */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
         {/* Prominent Admin Master Panel Button - Strictly for Admin Only */}
         {activeRole === 'admin' ? (
           <button
             onClick={() => onNavigate?.('admin_panel')}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold transition-all shadow-xs"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white px-2.5 sm:px-3 py-1.5 min-h-[36px] text-xs font-bold transition-all shadow-xs"
             title="Open Faculty & Administration Master Control Panel"
           >
             <ShieldCheck className="w-4 h-4 text-amber-400" />
@@ -107,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
         ) : activeRole === 'teacher' ? (
           <button
             onClick={() => onNavigate?.('teacher_panel')}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold transition-all shadow-xs"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white px-2.5 sm:px-3 py-1.5 min-h-[36px] text-xs font-bold transition-all shadow-xs"
             title="Open Teacher Workspace"
           >
             <ShieldCheck className="w-4 h-4 text-amber-400" />
@@ -119,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
         {(activeRole === 'admin' || activeRole === 'teacher') && (
           <button
             onClick={() => onNavigate?.('calendar')}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 text-xs font-bold transition-all shadow-xs"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 min-h-[36px] text-xs font-bold transition-all shadow-xs"
             title="Open Academic Calendar to Mark Student Attendance"
           >
             <CalendarCheck2 className="w-4 h-4 text-white" />
@@ -130,7 +131,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Global Dark Mode Switcher */}
         <button
           onClick={toggleTheme}
-          className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           aria-label="Toggle theme"
         >
@@ -141,19 +142,19 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowNotifs(!showNotifs)}
-            className="relative p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             title="School Notifications"
             aria-label="Notifications"
           >
             <Bell className="w-5 h-5 stroke-[1.8]" />
             {unreadNotifs.length > 0 && (
-              <span className="absolute top-1.5 right-1.5 flex h-2 w-2 rounded-full bg-red-600 ring-2 ring-white dark:ring-slate-900" />
+              <span className="absolute top-2 right-2 flex h-2 w-2 rounded-full bg-red-600 ring-2 ring-white dark:ring-slate-900" />
             )}
           </button>
 
           {/* Notifications Dropdown */}
           {showNotifs && (
-            <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl z-50 overflow-hidden animate-in fade-in duration-150">
+            <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-16 sm:top-auto sm:mt-2 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl z-50 overflow-hidden animate-in fade-in duration-150">
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-4 py-3 bg-slate-50 dark:bg-slate-800/60">
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">

@@ -15,6 +15,7 @@ import {
   AlertCircle,
   UserCheck,
   Lock,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   collection,
@@ -41,6 +42,7 @@ export const MessagesPage: React.FC = () => {
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<UserProfile[]>([]);
   const [modalSearch, setModalSearch] = useState('');
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -242,6 +244,7 @@ export const MessagesPage: React.FC = () => {
 
     if (existing) {
       setActiveConversationId(existing.id);
+      setMobileView('chat');
       return;
     }
 
@@ -265,6 +268,7 @@ export const MessagesPage: React.FC = () => {
     try {
       await setDoc(doc(db, 'conversations', newConvId), sanitizeFirestoreDoc(newConv));
       setActiveConversationId(newConvId);
+      setMobileView('chat');
 
       // Send direct notification ONLY to the recipient in Notification Center
       await sendDirectNotification({
@@ -367,9 +371,13 @@ export const MessagesPage: React.FC = () => {
       </div>
 
       {/* Main Messaging Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-3 rounded-2xl border border-stone-200 bg-white shadow-xs overflow-hidden h-[670px]">
+      <div className="grid grid-cols-1 md:grid-cols-3 rounded-2xl border border-stone-200 bg-white shadow-xs overflow-hidden h-[calc(100dvh-15rem)] min-h-[480px] md:h-[670px]">
         {/* Left: Conversation Channels */}
-        <div className="border-r border-stone-200 flex flex-col bg-stone-50/50">
+        <div
+          className={`border-r border-stone-200 flex-col bg-stone-50/50 min-h-0 ${
+            mobileView === 'chat' ? 'hidden md:flex' : 'flex'
+          }`}
+        >
           <div className="p-4 border-b border-stone-200">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-stone-400" />
@@ -406,8 +414,11 @@ export const MessagesPage: React.FC = () => {
                 return (
                   <button
                     key={c.id}
-                    onClick={() => setActiveConversationId(c.id)}
-                    className={`w-full p-4 text-left transition-colors flex items-start gap-3 ${
+                    onClick={() => {
+                      setActiveConversationId(c.id);
+                      setMobileView('chat');
+                    }}
+                    className={`w-full p-4 min-h-[56px] text-left transition-colors flex items-start gap-3 ${
                       isSelected ? 'bg-amber-50/80 border-l-4 border-amber-600' : 'hover:bg-stone-100/60'
                     }`}
                   >
@@ -445,11 +456,24 @@ export const MessagesPage: React.FC = () => {
         </div>
 
         {/* Right: Message Stream & Action Panel */}
-        <div className="md:col-span-2 flex flex-col h-full bg-white">
+        <div
+          className={`md:col-span-2 flex-col h-full min-h-0 bg-white ${
+            mobileView === 'list' ? 'hidden md:flex' : 'flex'
+          }`}
+        >
           {/* Active Contact Header */}
-          <div className="flex items-center justify-between border-b border-stone-200 p-4 bg-stone-50/60">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-900 text-amber-400 text-xs font-bold">
+          <div className="flex items-center justify-between border-b border-stone-200 p-3 sm:p-4 bg-stone-50/60 shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileView('list')}
+                className="md:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-100 shrink-0"
+                title="Back to Conversations"
+                aria-label="Back to Conversations"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-stone-900 text-amber-400 text-xs font-bold">
                 {otherParticipantName.charAt(0)}
               </div>
               <div>
@@ -576,7 +600,7 @@ export const MessagesPage: React.FC = () => {
                     className={`flex ${isMine ? 'justify-end' : 'justify-start'} animate-in fade-in duration-150`}
                   >
                     <div
-                      className={`max-w-[75%] rounded-2xl p-3.5 text-xs shadow-2xs leading-relaxed ${
+                      className={`max-w-[88%] sm:max-w-[75%] rounded-2xl p-3.5 text-xs shadow-2xs leading-relaxed ${
                         isMine
                           ? 'bg-blue-900 text-white rounded-br-none'
                           : 'bg-white border border-stone-200 text-stone-800 rounded-bl-none'

@@ -152,7 +152,7 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
             <span>
               Certified Authority:{' '}
               <strong className="text-slate-900 dark:text-white">
-                Zahira College Mawanella Science Project management
+                ZNC Science Project management
               </strong>
             </span>
           </div>

@@ -1,5 +1,15 @@
 export type UserRole = 'admin' | 'teacher' | 'student' | 'parent' | 'guest';
 
+export const OFFICIAL_STUDENT_SUBJECTS = [
+  'C.Maths',
+  'Bio',
+  'Physics',
+  'Chemistry',
+  'ICT',
+] as const;
+
+export type OfficialStudentSubject = (typeof OFFICIAL_STUDENT_SUBJECTS)[number];
+
 export interface UserProfile {
   userId: string;
   email: string;
@@ -11,6 +21,7 @@ export interface UserProfile {
   phone?: string;
   subject?: string; // For teachers: primary subject
   stream?: string;  // For students: academic stream (e.g., Biological Science, Physical Science)
+  enrolledSubjects?: string[]; // For students: joined subjects (C.Maths, Bio, Physics, Chemistry, ICT)
   assignedClassIds?: string[]; // For teachers
   enrolledClassIds?: string[]; // For students
   linkedStudentIds?: string[]; // For parents
@@ -324,6 +335,10 @@ export interface Discussion {
   repliesCount: number;
   isPinned?: boolean;
   isLocked?: boolean;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: string;
+  attachmentType?: string;
   createdAt: string;
 }
 
@@ -334,6 +349,26 @@ export interface DiscussionReply {
   authorName: string;
   authorRole: UserRole;
   content: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: string;
+  attachmentType?: string;
+  createdAt: string;
+}
+
+export interface DiscussionRoomMessage {
+  id: string;
+  roomId: string;
+  roomName?: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  indexNumber?: string;
+  text: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: string;
+  attachmentType?: string;
   createdAt: string;
 }
 
@@ -432,3 +467,75 @@ export interface ScheduledClass {
   createdAt: string;
 }
 
+export interface PvPPlayerAnswer {
+  selected: string;
+  isCorrect: boolean;
+  pointsAwarded: number;
+  timeSpentSec: number;
+}
+
+export interface PvPPlayerState {
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  indexNumber?: string;
+  score: number;
+  correctCount: number;
+  streak: number;
+  currentIndex: number;
+  finished: boolean;
+  joinedAt: string;
+  finishedAt?: string;
+  lastActiveAt?: string;
+  lastAnswerCorrect?: boolean | null;
+  answers?: Record<string, PvPPlayerAnswer>;
+}
+
+export type PvPMode = 'pvp' | 'solo_ranked';
+export type PvPStatus = 'waiting' | 'active' | 'completed';
+
+export interface PvPMatch {
+  id: string;
+  roomCode: string;
+  mode: PvPMode;
+  subject: string;
+  subjects?: string[];
+  topic: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  questionCount: number;
+  status: PvPStatus;
+  hostId: string;
+  hostName: string;
+  hostRole: UserRole;
+  hostIndexNumber?: string;
+  guestId?: string;
+  guestName?: string;
+  guestRole?: UserRole;
+  guestIndexNumber?: string;
+  invitedUserId?: string;
+  invitedUserName?: string;
+  questions: QuizQuestion[];
+  questionSource?: 'gemini_ai' | 'procedural_engine';
+  playerStates: Record<string, PvPPlayerState>;
+  winnerId?: string | null;
+  winnerName?: string | null;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface QuizScoreEvent {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  indexNumber?: string;
+  mode: 'pvp' | 'solo_ranked' | 'standard_quiz';
+  matchId?: string;
+  subject: string;
+  pointsEarned: number;
+  correctCount: number;
+  totalQuestions: number;
+  isWin: boolean;
+  completedAt: string;
+}

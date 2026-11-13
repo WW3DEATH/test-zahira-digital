@@ -35,13 +35,26 @@ export const AttendancePage: React.FC = () => {
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [students, setStudents] = useState<RosterStudent[]>([]);
   const [scheduledClasses, setScheduledClasses] = useState<ScheduledClass[]>([]);
+  const [dismissedDefaultsByDate, setDismissedDefaultsByDate] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrModalMode, setQrModalMode] = useState<'generate' | 'scan'>('generate');
   const [previewData, setPreviewData] = useState<PDFPreviewData | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [showGoogleCalendar, setShowGoogleCalendar] = useState(true);
+
+  // Add / Delete Academic Session state (Teacher & Admin only)
+  const [showAddSessionModal, setShowAddSessionModal] = useState(false);
+  const [newSessionSubject, setNewSessionSubject] = useState('Combined Mathematics');
+  const [newSessionTimeSlot, setNewSessionTimeSlot] = useState('08:00 - 09:30');
+  const [newSessionPeriod, setNewSessionPeriod] = useState('Period 1');
+  const [newSessionTopic, setNewSessionTopic] = useState('');
+  const [newSessionRoom, setNewSessionRoom] = useState('Science Complex - Hall 28');
+  const [savingSession, setSavingSession] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<ScheduledClass | null>(null);
+  const [cohortToDelete, setCohortToDelete] = useState<SchoolClass | null>(null);
 
   // Direct Student Roll-Call Entry state (no student account creation required)
   const [newStudentName, setNewStudentName] = useState('');
@@ -76,7 +89,23 @@ export const AttendancePage: React.FC = () => {
     const unsub = onSnapshot(collection(db, 'scheduledClasses'), (snap) => {
       const list: ScheduledClass[] = [];
       snap.forEach((d) => list.push(d.data() as ScheduledClass));
+      list.sort((a, b) => (a.timeSlot || '').localeCompare(b.timeSlot || ''));
       setScheduledClasses(list);
+    });
+    return () => unsub();
+  }, []);
+
+  // Real-time listener for dismissed default sessions per date
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'scheduledClassOverrides'), (snap) => {
+      const map: Record<string, string[]> = {};
+      snap.forEach((d) => {
+        const data = d.data() as { date?: string; dismissedDefaultIds?: string[] };
+        if (data?.date && Array.isArray(data.dismissedDefaultIds)) {
+          map[data.date] = data.dismissedDefaultIds;
+        }
+      });
+      setDismissedDefaultsByDate(map);
     });
     return () => unsub();
   }, []);
@@ -292,92 +321,168 @@ export const AttendancePage: React.FC = () => {
     }
   };
 
-  // Delete class cohort (for teacher and admin)
-  const handleDeleteClassCohort = async () => {
-    if (!selectedClassId || !isTeacherOrAdmin) return;
-    const targetCohort = classes.find((c) => c.id === selectedClassId);
-    if (!confirm(`Are you sure you want to remove the class cohort "${targetCohort?.name || selectedClassId}"?`)) return;
+  // Delete class cohort (strictly teacher and admin only, in-app confirmation)
+  const handleConfirmDeleteClassCohort = async () => {
+    if (!cohortToDelete || !isTeacherOrAdmin) return;
+    const targetId = cohortToDelete.id;
+    const targetName = cohortToDelete.name;
+    setCohortToDelete(null);
     try {
-      await deleteDoc(doc(db, 'classes', selectedClassId));
+      await deleteDoc(doc(db, 'classes', targetId));
       setSelectedClassId('');
+      setStatusNotice(`Removed class cohort "${targetName}".`);
+      setTimeout(() => setStatusNotice(null), 3500);
     } catch (err) {
       console.error('Failed to delete class cohort:', err);
     }
   };
 
-  // Get scheduled classes occurring on selected date
-  const getClassesForDate = (dateStr: string): ScheduledClass[] => {
-    const directMatches = scheduledClasses.filter((sc) => sc.date === dateStr);
-    if (directMatches.length > 0) return directMatches;
-
+  // Get default weekday academic sessions
+  const getDefaultWeekdayClasses = (dateStr: string): ScheduledClass[] => {
     const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-      return [
-        {
-          id: `default-${dateStr}-maths`,
-          classId: selectedClassId || 'general',
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '08:00 - 09:30',
-          periodName: 'Period 1',
-          subject: 'Combined Mathematics',
-          topic: 'Calculus Theorems & Vector Kinematics',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex - Hall 28',
-          createdAt: dateStr,
-        },
-        {
-          id: `default-${dateStr}-physics`,
-          classId: selectedClassId || 'general',
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '09:45 - 11:15',
-          periodName: 'Period 2',
-          subject: 'Physics',
-          topic: 'Rotational Dynamics & Wave Interference',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex - Physics Lab 1',
-          createdAt: dateStr,
-        },
-        {
-          id: `default-${dateStr}-chemistry`,
-          classId: selectedClassId || 'general',
-          className: '2k28 Science EM',
-          date: dateStr,
-          timeSlot: '11:30 - 13:00',
-          periodName: 'Period 3',
-          subject: 'Chemistry',
-          topic: 'Equilibrium Constant & Electrochemistry',
-          teacherId: userProfile?.userId || 'faculty',
-          teacherName: userProfile?.fullName || 'Zahira Faculty',
-          room: 'Science Complex - Chem Lab 2',
-          createdAt: dateStr,
-        },
-      ];
-    }
-    return [];
+    if (dayOfWeek < 1 || dayOfWeek > 5) return [];
+    return [
+      {
+        id: `default-${dateStr}-maths`,
+        classId: selectedClassId || 'general',
+        className: '2k28 Science EM',
+        date: dateStr,
+        timeSlot: '08:00 - 09:30',
+        periodName: 'Period 1',
+        subject: 'Combined Mathematics',
+        topic: 'Calculus Theorems & Vector Kinematics',
+        teacherId: userProfile?.userId || 'faculty',
+        teacherName: 'ZNC Science Project management',
+        room: 'Science Complex - Hall 28',
+        createdAt: dateStr,
+      },
+      {
+        id: `default-${dateStr}-physics`,
+        classId: selectedClassId || 'general',
+        className: '2k28 Science EM',
+        date: dateStr,
+        timeSlot: '09:45 - 11:15',
+        periodName: 'Period 2',
+        subject: 'Physics',
+        topic: 'Rotational Dynamics & Wave Interference',
+        teacherId: userProfile?.userId || 'faculty',
+        teacherName: 'ZNC Science Project management',
+        room: 'Science Complex - Physics Lab 1',
+        createdAt: dateStr,
+      },
+      {
+        id: `default-${dateStr}-chemistry`,
+        classId: selectedClassId || 'general',
+        className: '2k28 Science EM',
+        date: dateStr,
+        timeSlot: '11:30 - 13:00',
+        periodName: 'Period 3',
+        subject: 'Chemistry',
+        topic: 'Equilibrium Constant & Electrochemistry',
+        teacherId: userProfile?.userId || 'faculty',
+        teacherName: 'ZNC Science Project management',
+        room: 'Science Complex - Chem Lab 2',
+        createdAt: dateStr,
+      },
+    ];
   };
 
-  // Delete scheduled class session occurring on date (teacher and admin)
-  const handleDeleteScheduledClass = async (sessionClassId: string, subjectName: string) => {
-    if (!isTeacherOrAdmin) return;
-    if (!confirm(`Are you sure you want to remove the scheduled session "${subjectName}" occurring on ${selectedDate}?`)) return;
+  // Get scheduled classes occurring on selected date (merging custom Firestore records + non-dismissed defaults)
+  const getClassesForDate = (dateStr: string): ScheduledClass[] => {
+    const directMatches = scheduledClasses.filter((sc) => sc.date === dateStr);
+    const dismissedIds = dismissedDefaultsByDate[dateStr] || [];
+    const legacySessionOverride = directMatches.some((sc) => sc.id.startsWith('session-'));
+    const activeDefaults = legacySessionOverride
+      ? []
+      : getDefaultWeekdayClasses(dateStr).filter((def) => !dismissedIds.includes(def.id));
+    const combined = [...activeDefaults, ...directMatches];
+    combined.sort((a, b) => (a.timeSlot || '').localeCompare(b.timeSlot || ''));
+    return combined;
+  };
+
+  // Add new academic session on selectedDate (Teachers & Admins only)
+  const handleCreateAcademicSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isTeacherOrAdmin || !newSessionSubject.trim()) return;
+    setSavingSession(true);
     try {
-      if (sessionClassId.startsWith('default-')) {
-        const defaults = getClassesForDate(selectedDate);
-        for (const c of defaults) {
-          if (c.id !== sessionClassId) {
-            await setDoc(doc(db, 'scheduledClasses', `session-${selectedDate}-${c.subject.slice(0, 4)}`), {
-              ...c,
-              id: `session-${selectedDate}-${c.subject.slice(0, 4)}`,
-            });
-          }
-        }
+      const classSessionId = `class-session-${Date.now()}`;
+      const newSession: ScheduledClass = {
+        id: classSessionId,
+        classId: selectedClassId || 'general',
+        className: '2k28 Science EM',
+        date: selectedDate,
+        timeSlot: newSessionTimeSlot,
+        periodName: newSessionPeriod,
+        subject: newSessionSubject.trim(),
+        topic: newSessionTopic.trim() || undefined,
+        teacherId: userProfile?.userId || 'faculty',
+        teacherName: 'ZNC Science Project management',
+        room: newSessionRoom.trim() || 'Science Complex - Hall 28',
+        attendanceTaken: false,
+        createdAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'scheduledClasses', classSessionId), sanitizeFirestoreDoc(newSession));
+
+      // Mirror in schoolEvents calendar feed
+      await setDoc(
+        doc(db, 'schoolEvents', `ev-class-${classSessionId}`),
+        sanitizeFirestoreDoc({
+          id: `ev-class-${classSessionId}`,
+          title: `${newSession.subject} (${newSession.timeSlot})`,
+          description: `Academic session: ${newSession.topic || 'Academic Lecture'} | Room: ${newSession.room}`,
+          startDate: selectedDate,
+          time: newSession.timeSlot.split('-')[0].trim(),
+          type: 'academic',
+          classId: selectedClassId || 'general',
+          location: newSession.room,
+          createdBy: userProfile?.userId || 'faculty',
+          createdByName: 'ZNC Science Project management',
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      setShowAddSessionModal(false);
+      setNewSessionTopic('');
+      setStatusNotice(`Added academic session "${newSession.subject}" on ${selectedDate}.`);
+      setTimeout(() => setStatusNotice(null), 3500);
+    } catch (err) {
+      console.error('Failed to add academic session:', err);
+    } finally {
+      setSavingSession(false);
+    }
+  };
+
+  // Delete scheduled academic session occurring on date (strictly teacher and admin only)
+  const handleConfirmDeleteScheduledClass = async () => {
+    if (!sessionToDelete || !isTeacherOrAdmin) return;
+    const target = sessionToDelete;
+    setSessionToDelete(null);
+
+    try {
+      if (target.id.startsWith('default-')) {
+        const currentDismissed = dismissedDefaultsByDate[selectedDate] || [];
+        const updatedDismissed = Array.from(new Set([...currentDismissed, target.id]));
+        setDismissedDefaultsByDate((prev) => ({
+          ...prev,
+          [selectedDate]: updatedDismissed,
+        }));
+        await setDoc(
+          doc(db, 'scheduledClassOverrides', selectedDate),
+          {
+            date: selectedDate,
+            dismissedDefaultIds: updatedDismissed,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
       } else {
-        await deleteDoc(doc(db, 'scheduledClasses', sessionClassId));
+        setScheduledClasses((prev) => prev.filter((sc) => sc.id !== target.id));
+        await deleteDoc(doc(db, 'scheduledClasses', target.id));
+        await deleteDoc(doc(db, 'schoolEvents', `ev-class-${target.id}`)).catch(() => {});
       }
+      setStatusNotice(`Removed academic session "${target.subject}" on ${selectedDate}.`);
+      setTimeout(() => setStatusNotice(null), 3500);
     } catch (err) {
       console.error('Failed to remove scheduled class:', err);
     }
@@ -405,8 +510,8 @@ export const AttendancePage: React.FC = () => {
     doc.setTextColor(15, 23, 42);
     doc.text(`Class: 2k28 Science EM`, 20, 46);
     doc.text(`Roll-Call Date: ${selectedDate}`, 20, 52);
-    doc.text(`Supervisor: ${userProfile?.fullName || 'Academic Faculty'} (${userProfile?.role || 'Teacher'})`, 120, 46);
-    doc.text(`Total Enrolled: ${students.length}`, 120, 52);
+    doc.text(`Supervisor: ZNC Science Project management`, 115, 46);
+    doc.text(`Total Enrolled: ${students.length}`, 115, 52);
 
     let y = 65;
     doc.setFillColor(241, 245, 249);
@@ -451,7 +556,7 @@ export const AttendancePage: React.FC = () => {
     });
 
     doc.setFont('helvetica', 'normal');
-    doc.text('Certified by Zahira College Mawanella Science Project management • Official Academic Record', 20, y + 15);
+    doc.text('Certified by ZNC Science Project management • Official Academic Record', 20, y + 15);
 
     return doc;
   };
@@ -496,7 +601,7 @@ export const AttendancePage: React.FC = () => {
       csv += 'ZAHIRA COLLEGE MAWANELLA • OFFICIAL STUDENT ATTENDANCE REGISTER\n';
       csv += `Academic Cohort:,"${className} (G.C.E. Advanced Level 2028)"\n`;
       csv += `Roll-Call Session Date:,"${selectedDate}"\n`;
-      csv += `Supervisor:,"${userProfile?.fullName || 'Academic Faculty'} (${userProfile?.role || 'Teacher'})"\n`;
+      csv += `Supervisor:,"ZNC Science Project management"\n`;
       csv += `Total Enrolled Scholars:,${totalStudents}\n`;
       csv += `Present Scholars:,${presentCount}\n`;
       csv += `Absent Scholars:,${absentCount}\n`;
@@ -523,7 +628,7 @@ export const AttendancePage: React.FC = () => {
         csv += `${escape(indexOrId)},${escape(st.fullName)},${escape(st.indexNumber)},${escape(
           '2k28 Science EM'
         )},${escape(status.toUpperCase())},${escape(selectedDate)},${escape(
-          userProfile?.fullName || 'Faculty Lead'
+          'ZNC Science Project management'
         )},${escape(method)}\n`;
       });
 
@@ -589,7 +694,7 @@ export const AttendancePage: React.FC = () => {
       doc.text(`Evaluation Period: ${monthName}`, 20, 56);
       doc.text(`Target Class: 2k28 Science EM`, 20, 62);
       doc.text(`Sessions Evaluated: ${totalRecordedSessions}`, 115, 56);
-      doc.text(`Supervisor: ${userProfile?.fullName || 'Faculty Lead'} (${userProfile?.role || 'Staff'})`, 115, 62);
+      doc.text(`Supervisor: ZNC Science Project management`, 115, 62);
 
       // Table Header
       let y = 72;
@@ -692,7 +797,7 @@ export const AttendancePage: React.FC = () => {
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
       doc.text(
-        'CONFIDENTIAL: Prepared exclusively by Zahira College Mawanella Science Project management for Internal Staff Records.',
+        'CONFIDENTIAL: Prepared exclusively by ZNC Science Project management for Internal Staff Records.',
         20,
         y + 18
       );
@@ -718,7 +823,7 @@ export const AttendancePage: React.FC = () => {
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-serif text-2xl font-bold tracking-tight text-slate-900">
               Official Attendance Register
             </h2>
@@ -727,7 +832,7 @@ export const AttendancePage: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            2k28 Science English Medium • Official daily attendance roll-call and certified records
+            2k28 Science English Medium • Supervisor: <strong className="text-slate-700">ZNC Science Project management</strong>
           </p>
         </div>
 
@@ -777,6 +882,22 @@ export const AttendancePage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {statusNotice && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-semibold text-blue-900 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{statusNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusNotice(null)}
+            className="text-blue-400 hover:text-blue-700 p-1"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* POLICY NOTICE FOR STUDENTS & PARENTS */}
       {!isTeacherOrAdmin && (
@@ -930,8 +1051,11 @@ export const AttendancePage: React.FC = () => {
               {isTeacherOrAdmin && selectedClassId && (
                 <button
                   type="button"
-                  onClick={handleDeleteClassCohort}
-                  className="p-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
+                  onClick={() => {
+                    const targetCohort = classes.find((c) => c.id === selectedClassId);
+                    if (targetCohort) setCohortToDelete(targetCohort);
+                  }}
+                  className="p-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
                   title="Remove this class cohort"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -1062,37 +1186,62 @@ export const AttendancePage: React.FC = () => {
               Classes Occurring on {selectedDate}
             </span>
             <p className="text-xs font-bold text-slate-900 mt-0.5">
-              Scheduled academic sessions & laboratory periods:
+              Scheduled academic sessions &amp; laboratory periods
             </p>
           </div>
-          <span className="text-[11px] font-semibold text-slate-500">
-            {getClassesForDate(selectedDate).length} class session(s)
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold text-slate-500">
+              {getClassesForDate(selectedDate).length} class session(s)
+            </span>
+            {isTeacherOrAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowAddSessionModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 text-xs font-bold transition-colors shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Academic Session</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2.5 pt-1">
-          {getClassesForDate(selectedDate).map((cls) => (
-            <div
-              key={cls.id}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold shadow-2xs"
-            >
-              <GraduationCap className="w-4 h-4 text-blue-600" />
-              <div className="text-left">
-                <p className="font-bold text-[11px] text-slate-900">{cls.subject}</p>
-                <p className="text-[10px] text-slate-500">{cls.timeSlot} • {cls.room}</p>
+        {getClassesForDate(selectedDate).length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white/80 p-4 text-center text-xs text-slate-500">
+            No academic sessions scheduled on {selectedDate}.
+            {isTeacherOrAdmin && (
+              <span className="block text-[11px] text-slate-400 mt-0.5">
+                Click &quot;Add Academic Session&quot; above to add a lecture or practical period for teachers/admins.
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2.5 pt-1">
+            {getClassesForDate(selectedDate).map((cls) => (
+              <div
+                key={cls.id}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold shadow-2xs"
+              >
+                <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
+                <div className="text-left min-w-0">
+                  <p className="font-bold text-[11px] text-slate-900">{cls.subject}</p>
+                  <p className="text-[10px] text-slate-500">{cls.timeSlot} • {cls.room}</p>
+                </div>
+                {isTeacherOrAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setSessionToDelete(cls)}
+                    className="min-h-[32px] min-w-[32px] flex items-center justify-center p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                    title="Remove this academic session"
+                    aria-label={`Remove ${cls.subject}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              {isTeacherOrAdmin && (
-                <button
-                  onClick={() => handleDeleteScheduledClass(cls.id, cls.subject)}
-                  className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                  title="Remove this class session"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* GOOGLE CALENDAR VIEW SECTION */}
@@ -1291,23 +1440,23 @@ export const AttendancePage: React.FC = () => {
                                 <p className="text-[10px] text-slate-400">Index: {student.indexNumber} • 2k28 Science EM Scholar</p>
                               </div>
                               {isTeacherOrAdmin && (
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex items-center gap-1">
                                   <button
                                     onClick={() => {
                                       setEditingStudentId(student.id);
                                       setEditingNameValue(student.fullName);
                                     }}
-                                    className="p-1 text-slate-400 hover:text-blue-600 rounded"
+                                    className="p-1.5 text-slate-400 hover:text-blue-600 rounded"
                                     title="Edit student name"
                                   >
-                                    <Edit2 className="w-3 h-3" />
+                                    <Edit2 className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={() => handleDeleteStudent(student.id)}
-                                    className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded"
                                     title="Remove from roll call"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               )}
@@ -1340,12 +1489,12 @@ export const AttendancePage: React.FC = () => {
                         </div>
                       </td>
 
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
                         {isTeacherOrAdmin ? (
-                          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
+                          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs whitespace-nowrap">
                             <button
                               onClick={() => handleStatusChange(student.id, 'present')}
-                              className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                              className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                 status === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
                               }`}
                             >
@@ -1353,7 +1502,7 @@ export const AttendancePage: React.FC = () => {
                             </button>
                             <button
                               onClick={() => handleStatusChange(student.id, 'absent')}
-                              className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                              className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                 status === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-100'
                               }`}
                             >
@@ -1361,7 +1510,7 @@ export const AttendancePage: React.FC = () => {
                             </button>
                             <button
                               onClick={() => handleStatusChange(student.id, 'late')}
-                              className={`rounded px-2 py-1 text-[11px] font-bold transition-colors ${
+                              className={`rounded px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition-colors ${
                                 status === 'late' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'
                               }`}
                             >
@@ -1459,6 +1608,197 @@ export const AttendancePage: React.FC = () => {
         }}
         pdfData={previewData}
       />
+
+      {/* ADD ACADEMIC SESSION MODAL (Teachers & Admins Only) */}
+      {showAddSessionModal && isTeacherOrAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-base text-slate-900">
+                    Add Academic Session
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Date: {selectedDate} • Teachers &amp; Admins Only
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddSessionModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAcademicSession} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Subject *
+                </label>
+                <select
+                  value={newSessionSubject}
+                  onChange={(e) => setNewSessionSubject(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Combined Mathematics">Combined Mathematics</option>
+                  <option value="Physics">Physics</option>
+                  <option value="Chemistry">Chemistry</option>
+                  <option value="Biology">Biology</option>
+                  <option value="Information & Communication Technology (ICT)">ICT</option>
+                  <option value="General English">General English</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Period &amp; Time Slot *
+                </label>
+                <select
+                  value={newSessionTimeSlot}
+                  onChange={(e) => {
+                    setNewSessionTimeSlot(e.target.value);
+                    if (e.target.value.includes('08:00')) setNewSessionPeriod('Period 1');
+                    else if (e.target.value.includes('09:45')) setNewSessionPeriod('Period 2');
+                    else if (e.target.value.includes('11:30')) setNewSessionPeriod('Period 3');
+                    else setNewSessionPeriod('Period 4');
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="08:00 - 09:30">Period 1 (08:00 - 09:30)</option>
+                  <option value="09:45 - 11:15">Period 2 (09:45 - 11:15)</option>
+                  <option value="11:30 - 13:00">Period 3 (11:30 - 13:00)</option>
+                  <option value="13:45 - 15:15">Period 4 (13:45 - 15:15)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Room / Lecture Hall
+                </label>
+                <input
+                  type="text"
+                  value={newSessionRoom}
+                  onChange={(e) => setNewSessionRoom(e.target.value)}
+                  placeholder="Science Complex - Hall 28"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Session Topic (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newSessionTopic}
+                  onChange={(e) => setNewSessionTopic(e.target.value)}
+                  placeholder="e.g. Organic Reaction Mechanisms"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddSessionModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSession}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2 font-bold text-white shadow-xs"
+                >
+                  {savingSession ? 'Adding...' : 'Add Session'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE ACADEMIC SESSION MODAL (IFrame-safe, Teachers & Admins Only) */}
+      {sessionToDelete && isTeacherOrAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-slate-900">Remove Academic Session?</h3>
+                <p className="text-[11px] text-slate-500">Scheduled on {selectedDate}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Remove <strong className="text-slate-900">&quot;{sessionToDelete.subject}&quot;</strong> ({sessionToDelete.timeSlot}) from the {selectedDate} academic sessions list?
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSessionToDelete(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteScheduledClass}
+                className="rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-xs font-bold text-white shadow-xs"
+              >
+                Yes, Remove Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE CLASS COHORT MODAL (IFrame-safe, Teachers & Admins Only) */}
+      {cohortToDelete && isTeacherOrAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-slate-900">Remove Class Cohort?</h3>
+                <p className="text-[11px] text-slate-500">Teachers &amp; Admins Only</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to remove the class cohort <strong className="text-slate-900">&quot;{cohortToDelete.name}&quot;</strong>?
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setCohortToDelete(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteClassCohort}
+                className="rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2 text-xs font-bold text-white shadow-xs"
+              >
+                Yes, Remove Cohort
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

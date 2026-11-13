@@ -563,7 +563,7 @@ export const AssessmentsPage: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
-    doc.text('Science Project Management', 133, y + 6);
+    doc.text('ZNC Science Project management', 130, y + 6);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(100, 116, 139);
@@ -756,12 +756,12 @@ export const AssessmentsPage: React.FC = () => {
 
           {/* Student Selector for Teachers/Admins */}
           {activeRole !== 'student' && activeRole !== 'parent' && scholarCandidates.length > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200">
               <span className="text-xs font-semibold text-stone-700">Preview Scholar Report Card:</span>
               <select
                 value={selectedReportStudentId}
                 onChange={(e) => setSelectedReportStudentId(e.target.value)}
-                className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-bold text-stone-800 focus:outline-none"
+                className="w-full sm:w-auto rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-bold text-stone-800 focus:outline-none"
               >
                 {scholarCandidates.map((s) => (
                   <option key={s.userId} value={s.userId}>
@@ -798,79 +798,81 @@ export const AssessmentsPage: React.FC = () => {
               </div>
             </div>
 
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-stone-200 bg-stone-50 text-stone-600 font-semibold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4">Examination</th>
-                  <th className="py-3 px-4">Academic Term</th>
-                  <th className="py-3 px-4">Marks Scored</th>
-                  <th className="py-3 px-4">Max Score</th>
-                  <th className="py-3 px-4">Percentage</th>
-                  <th className="py-3 px-4">Grade</th>
-                  <th className="py-3 px-4">Faculty Feedback</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100 text-stone-800">
-                {studentMarks.length > 0 ? (
-                  studentMarks.map((m) => {
-                    const testObj = tests.find((t) => t.id === m.testId);
-                    const pct = m.maxMarks > 0 ? Math.round((m.marksObtained / m.maxMarks) * 100) : 0;
-                    return (
-                      <tr key={m.id} className="hover:bg-stone-50/50 transition-colors">
-                        <td className="py-3.5 px-4 font-semibold text-stone-900">
-                          {testObj?.title || m.subjectId || 'Academic Assessment'}
-                        </td>
-                        <td className="py-3.5 px-4 text-stone-500">{testObj?.term || 'Term 1'}</td>
-                        <td className="py-3.5 px-4 font-bold text-blue-600">{m.marksObtained}</td>
-                        <td className="py-3.5 px-4 text-stone-500">{m.maxMarks}</td>
-                        <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">{pct}%</td>
-                        <td className="py-3.5 px-4">
-                          <span className="rounded bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 text-[11px]">
-                            {getLetterGrade(pct)}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-stone-600 max-w-xs truncate">{m.feedback || 'Verified Record'}</td>
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => handleDeleteMark(m.id)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Delete Mark"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  /* Clean Empty State: ZERO fake rows */
-                  <tr>
-                    <td colSpan={8} className="py-12 px-4 text-center">
-                      <div className="flex flex-col items-center justify-center text-stone-400">
-                        <BookOpen className="w-9 h-9 text-stone-300 mx-auto mb-2 opacity-60" />
-                        <p className="font-bold text-stone-700 text-sm">
-                          No evaluated examination marks uploaded yet.
-                        </p>
-                        <p className="text-xs text-stone-400 mt-1 max-w-md">
-                          Marks recorded by teachers under Scheduled Examinations or via the Upload Marks button will appear here in real time and automatically synchronize to the dashboard Marks Trend graph.
-                        </p>
-                        <button
-                          onClick={() => {
-                            setUploadTestMode('new');
-                            setShowUploadMarkModal(true);
-                          }}
-                          className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors shadow-2xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Record / Upload First Mark</span>
-                        </button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-left text-xs">
+                <thead>
+                  <tr className="border-b border-stone-200 bg-stone-50 text-stone-600 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Examination</th>
+                    <th className="py-3 px-4">Academic Term</th>
+                    <th className="py-3 px-4">Marks Scored</th>
+                    <th className="py-3 px-4">Max Score</th>
+                    <th className="py-3 px-4">Percentage</th>
+                    <th className="py-3 px-4">Grade</th>
+                    <th className="py-3 px-4">Faculty Feedback</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-stone-100 text-slate-800">
+                  {studentMarks.length > 0 ? (
+                    studentMarks.map((m) => {
+                      const testObj = tests.find((t) => t.id === m.testId);
+                      const pct = m.maxMarks > 0 ? Math.round((m.marksObtained / m.maxMarks) * 100) : 0;
+                      return (
+                        <tr key={m.id} className="hover:bg-stone-50/50 transition-colors">
+                          <td className="py-3.5 px-4 font-semibold text-stone-900">
+                            {testObj?.title || m.subjectId || 'Academic Assessment'}
+                          </td>
+                          <td className="py-3.5 px-4 text-stone-500">{testObj?.term || 'Term 1'}</td>
+                          <td className="py-3.5 px-4 font-bold text-blue-600">{m.marksObtained}</td>
+                          <td className="py-3.5 px-4 text-stone-500">{m.maxMarks}</td>
+                          <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">{pct}%</td>
+                          <td className="py-3.5 px-4">
+                            <span className="rounded bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 text-[11px]">
+                              {getLetterGrade(pct)}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-stone-600 max-w-xs truncate">{m.feedback || 'Verified Record'}</td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              onClick={() => handleDeleteMark(m.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title="Delete Mark"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    /* Clean Empty State: ZERO fake rows */
+                    <tr>
+                      <td colSpan={8} className="py-12 px-4 text-center">
+                        <div className="flex flex-col items-center justify-center text-stone-400">
+                          <BookOpen className="w-9 h-9 text-stone-300 mx-auto mb-2 opacity-60" />
+                          <p className="font-bold text-stone-700 text-sm">
+                            No evaluated examination marks uploaded yet.
+                          </p>
+                          <p className="text-xs text-stone-400 mt-1 max-w-md">
+                            Marks recorded by teachers under Scheduled Examinations or via the Upload Marks button will appear here in real time and automatically synchronize to the dashboard Marks Trend graph.
+                          </p>
+                          <button
+                            onClick={() => {
+                              setUploadTestMode('new');
+                              setShowUploadMarkModal(true);
+                            }}
+                            className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors shadow-2xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Record / Upload First Mark</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Institutional Certification Footer */}

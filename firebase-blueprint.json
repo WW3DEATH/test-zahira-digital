@@ -12,6 +12,7 @@
         "avatarUrl": { "type": "string" },
         "bio": { "type": "string" },
         "phone": { "type": "string" },
+        "enrolledSubjects": { "type": "array" },
         "assignedClassIds": { "type": "array" },
         "enrolledClassIds": { "type": "array" },
         "linkedStudentIds": { "type": "array" },
@@ -263,6 +264,10 @@
         "repliesCount": { "type": "number" },
         "isPinned": { "type": "boolean" },
         "isLocked": { "type": "boolean" },
+        "attachmentUrl": { "type": "string" },
+        "attachmentName": { "type": "string" },
+        "attachmentSize": { "type": "string" },
+        "attachmentType": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "title", "content", "authorId", "category"]
@@ -278,9 +283,34 @@
         "authorName": { "type": "string" },
         "authorRole": { "type": "string" },
         "content": { "type": "string" },
+        "attachmentUrl": { "type": "string" },
+        "attachmentName": { "type": "string" },
+        "attachmentSize": { "type": "string" },
+        "attachmentType": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "discussionId", "authorId", "content"]
+    },
+    "discussionRoomMessage": {
+      "title": "Discussion Room Message",
+      "description": "Real-time group chat message and file upload inside the Discussion Room",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "roomId": { "type": "string" },
+        "roomName": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "indexNumber": { "type": "string" },
+        "text": { "type": "string" },
+        "attachmentUrl": { "type": "string" },
+        "attachmentName": { "type": "string" },
+        "attachmentSize": { "type": "string" },
+        "attachmentType": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "roomId", "authorId", "authorName", "text", "createdAt"]
     },
     "tutorSession": {
       "title": "Gemini AI Tutor Session",
@@ -328,6 +358,65 @@
         "logoUrl": { "type": "string" }
       },
       "required": ["id", "schoolName"]
+    },
+    "pvpMatch": {
+      "title": "PvP Quiz Match",
+      "description": "Real-time Player vs Player or Ranked Solo AI-generated quiz competition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "roomCode": { "type": "string" },
+        "mode": { "type": "string", "enum": ["pvp", "solo_ranked"] },
+        "subject": { "type": "string" },
+        "subjects": { "type": "array" },
+        "topic": { "type": "string" },
+        "difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] },
+        "questionCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["waiting", "active", "completed"] },
+        "hostId": { "type": "string" },
+        "hostName": { "type": "string" },
+        "guestId": { "type": "string" },
+        "guestName": { "type": "string" },
+        "invitedUserId": { "type": "string" },
+        "questions": { "type": "array" },
+        "playerStates": { "type": "object" },
+        "winnerId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "roomCode", "mode", "subject", "status", "hostId", "questions"]
+    },
+    "quizScoreEvent": {
+      "title": "Quiz Score Event",
+      "description": "Completed quiz/PvP attempt log used to aggregate weekly, monthly, and yearly Top 20 leaderboards",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "indexNumber": { "type": "string" },
+        "mode": { "type": "string", "enum": ["pvp", "solo_ranked", "standard_quiz"] },
+        "matchId": { "type": "string" },
+        "subject": { "type": "string" },
+        "pointsEarned": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "isWin": { "type": "boolean" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "userName", "mode", "pointsEarned", "completedAt"]
+    },
+    "scheduledClassOverride": {
+      "title": "Scheduled Class Override",
+      "description": "Per-date dismissed default academic sessions managed by teachers and admins",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "dismissedDefaultIds": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["date", "dismissedDefaultIds"]
     }
   },
   "firestore": {
@@ -395,6 +484,10 @@
       "schema": { "$ref": "discussionReply" },
       "description": "Replies to group discussions"
     },
+    "/discussionRoomMessages/{messageId}": {
+      "schema": { "$ref": "discussionRoomMessage" },
+      "description": "Real-time group chat messages and shared files in discussion rooms"
+    },
     "/tutorSessions/{sessionId}": {
       "schema": { "$ref": "tutorSession" },
       "description": "Gemini AI student tutoring conversations"
@@ -406,6 +499,18 @@
     "/schoolSettings/{settingId}": {
       "schema": { "$ref": "schoolSetting" },
       "description": "Global school configuration"
+    },
+    "/pvpMatches/{matchId}": {
+      "schema": { "$ref": "pvpMatch" },
+      "description": "Real-time PvP quiz competition rooms and scores"
+    },
+    "/quizScoreEvents/{eventId}": {
+      "schema": { "$ref": "quizScoreEvent" },
+      "description": "Completed quiz competition score logs for Weekly, Monthly, and Yearly Top 20 Leaderboards"
+    },
+    "/scheduledClassOverrides/{date}": {
+      "schema": { "$ref": "scheduledClassOverride" },
+      "description": "Per-date overrides for deleted default academic sessions"
     }
   }
 }

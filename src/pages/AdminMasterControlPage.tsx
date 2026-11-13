@@ -801,9 +801,9 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
 
             {/* Top Marquee Announcement Ticker */}
             <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Megaphone className="w-4 h-4 text-red-600" />
+                  <Megaphone className="w-4 h-4 text-red-600 shrink-0" />
                   <span className="font-bold text-blue-950">Top Website Marquee Announcement Banner</span>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer font-bold text-blue-900">
@@ -1555,7 +1555,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                   <span className="text-[10px] text-slate-500 font-semibold">Live Firestore Feed</span>
                 </div>
 
-                <div className="divide-y divide-slate-100 overflow-y-auto max-h-[560px]">
+                <div className="divide-y divide-slate-100 overflow-y-auto max-h-[280px] lg:max-h-[560px]">
                   {filteredConversations.map((conv) => {
                     const isSelected = selectedConvId === conv.id;
                     const participants = Object.entries(conv.participantNames || {});

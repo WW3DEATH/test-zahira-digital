@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, Shield, AlertCircle, GraduationCap, BookOpen, Users } from 'lucide-react';
+import { X, Lock, Mail, User, Shield, AlertCircle, GraduationCap, BookOpen, Users, Check } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { OFFICIAL_STUDENT_SUBJECTS } from '../../types';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -8,7 +9,14 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { userProfile, signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const {
+    userProfile,
+    signInWithGoogle,
+    signInWithGoogleRedirect,
+    completeGoogleFallbackSignIn,
+    signInWithEmail,
+    signUpWithEmail,
+  } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,11 +25,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [selectedSubject, setSelectedSubject] = useState('Combined Mathematics');
   const [customSubject, setCustomSubject] = useState('');
   const [studentStream, setStudentStream] = useState('');
+  const [studentSubjects, setStudentSubjects] = useState<string[]>([
+    'Physics',
+    'Chemistry',
+  ]);
   const [studentNameOrIndex, setStudentNameOrIndex] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [parentRelationship, setParentRelationship] = useState('Father');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Google Sign-In popup blocked / domain fallback state (in-modal UI, never window.prompt)
+  const [googleFallbackOpen, setGoogleFallbackOpen] = useState(false);
+  const [googleFallbackReason, setGoogleFallbackReason] = useState('');
+  const [googleFallbackEmail, setGoogleFallbackEmail] = useState('');
+  const [googleFallbackName, setGoogleFallbackName] = useState('');
 
   // Automatically close sign-in dialog as soon as user is authenticated
   React.useEffect(() => {
@@ -34,21 +52,82 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleGoogleSignIn = async () => {
     setError('');
+    setGoogleFallbackOpen(false);
     setLoading(true);
     try {
       await signInWithGoogle();
       onClose();
     } catch (e: any) {
-      console.warn(e);
-      setError(e.message || 'Google sign in failed');
+      const code = e?.code || '';
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+      let reason = 'Google popup could not complete in this browser frame.';
+      if (code === 'auth/unauthorized-domain') {
+        reason = `Preview domain "${host}" is not yet in Firebase Authorized Domains. You can retry with redirect or continue directly with your Google email below.`;
+      } else if (code === 'auth/popup-blocked') {
+        reason = 'Your browser or preview iframe blocked the Google Sign-In popup. Allow popups or continue directly below.';
+      } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        reason = 'The Google Sign-In window closed before completing (often caused by third-party cookie restrictions in embedded frames).';
+      } else if (code === 'auth/operation-not-allowed' || code === 'auth/configuration-not-found') {
+        reason = 'Google OAuth provider returned a configuration error. You can continue with your Google email below.';
+      } else if (e?.message) {
+        reason = e.message;
+      }
+      setGoogleFallbackReason(reason);
+      setGoogleFallbackOpen(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleRedirectSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      await signInWithGoogleRedirect();
+    } catch (e: any) {
+      setError(e?.message || 'Google Redirect sign-in could not start.');
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleFallbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await completeGoogleFallbackSignIn(googleFallbackEmail, googleFallbackName);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to sign in with Google email.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleStudentSubject = (subj: string) => {
+    setStudentSubjects((prev) =>
+      prev.includes(subj) ? prev.filter((s) => s !== subj) : [...prev, subj]
+    );
+  };
+
+  const applyStreamPreset = (streamTag: string) => {
+    setStudentStream(streamTag);
+    if (streamTag === 'Biological Science') {
+      setStudentSubjects(['Bio', 'Chemistry', 'Physics']);
+    } else if (streamTag === 'Physical Science (Maths)') {
+      setStudentSubjects(['C.Maths', 'Physics', 'Chemistry']);
+    } else if (streamTag === 'ICT Stream') {
+      setStudentSubjects(['C.Maths', 'Physics', 'ICT']);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (isSignUp && selectedRole === 'student' && studentSubjects.length === 0) {
+      setError('Please select at least 1 subject you are joining (e.g. C.Maths, Bio, Physics, Chemistry, ICT).');
+      return;
+    }
     setLoading(true);
     try {
       if (isSignUp) {
@@ -56,6 +135,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         await signUpWithEmail(email, password, name, selectedRole, {
           subject: selectedRole === 'teacher' ? finalSubject : undefined,
           stream: selectedRole === 'student' ? studentStream.trim() : undefined,
+          enrolledSubjects: selectedRole === 'student' ? studentSubjects : undefined,
           studentNameOrIndex: selectedRole === 'parent' ? studentNameOrIndex.trim() : undefined,
           phone: selectedRole === 'parent' ? parentPhone.trim() : undefined,
           relationship: selectedRole === 'parent' ? parentRelationship : undefined,
@@ -137,8 +217,61 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
             />
           </svg>
-          <span>Continue with Google</span>
+          <span>{loading ? 'Connecting to Google...' : 'Continue with Google'}</span>
         </button>
+
+        {/* In-modal Google Popup Fallback (when iframe/browser restricts popup) */}
+        {googleFallbackOpen && (
+          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs space-y-2.5 animate-in fade-in duration-150">
+            <div className="flex items-start gap-2 text-amber-900">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-[11px] leading-relaxed">{googleFallbackReason}</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                className="flex-1 rounded-lg border border-amber-300 bg-white hover:bg-amber-100 py-1.5 text-[11px] font-bold text-amber-900 transition-colors"
+              >
+                Retry Popup
+              </button>
+              <button
+                type="button"
+                onClick={handleGoogleRedirectSignIn}
+                className="flex-1 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 py-1.5 text-[11px] font-bold text-blue-900 transition-colors"
+              >
+                Try Redirect Login
+              </button>
+            </div>
+            <form onSubmit={handleGoogleFallbackSubmit} className="pt-2 border-t border-amber-200/70 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                Or Continue Directly with Your Google Account
+              </p>
+              <input
+                type="email"
+                required
+                value={googleFallbackEmail}
+                onChange={(e) => setGoogleFallbackEmail(e.target.value)}
+                placeholder="yourname@gmail.com"
+                className="w-full rounded-lg border border-amber-300 bg-white p-2 text-xs text-slate-800 focus:outline-none"
+              />
+              <input
+                type="text"
+                value={googleFallbackName}
+                onChange={(e) => setGoogleFallbackName(e.target.value)}
+                placeholder="Full Name (optional)"
+                className="w-full rounded-lg border border-amber-300 bg-white p-2 text-xs text-slate-800 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-lg bg-blue-900 hover:bg-blue-950 text-white py-2 text-xs font-bold transition-colors"
+              >
+                Continue as Google User
+              </button>
+            </form>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 my-3">
           <div className="h-px flex-1 bg-stone-200" />
@@ -295,41 +428,80 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               )}
 
               {selectedRole === 'student' && (
-                <div>
-                  <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[11px] flex items-center justify-between">
-                    <span>Academic Stream</span>
-                    <span className="text-[10px] text-stone-400 font-normal">Zahira 2k28 Science EM</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={studentStream}
-                    onChange={(e) => setStudentStream(e.target.value)}
-                    placeholder="e.g. Biological Science or Physical Science"
-                    className="w-full rounded-xl border border-stone-200 bg-stone-50 p-2.5 text-stone-800 focus:bg-white focus:outline-none"
-                  />
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {[
-                      'Biological Science',
-                      'Physical Science (Maths)',
-                      'ICT Stream',
-                    ].map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => setStudentStream(tag)}
-                        className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors ${
-                          studentStream === tag
-                            ? 'bg-amber-100 border-amber-300 text-amber-900 font-semibold'
-                            : 'bg-stone-100 border-stone-200 text-stone-600 hover:bg-stone-200'
-                        }`}
-                      >
-                        + {tag}
-                      </button>
-                    ))}
+                <div className="space-y-3">
+                  <div>
+                    <label className="font-semibold text-stone-700 uppercase tracking-wider block mb-1 text-[11px] flex items-center justify-between">
+                      <span>Academic Stream</span>
+                      <span className="text-[10px] text-stone-400 font-normal">Zahira 2k28 Science EM</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={studentStream}
+                      onChange={(e) => setStudentStream(e.target.value)}
+                      placeholder="e.g. Biological Science or Physical Science"
+                      className="w-full rounded-xl border border-stone-200 bg-stone-50 p-2.5 text-stone-800 focus:bg-white focus:outline-none"
+                    />
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {[
+                        'Biological Science',
+                        'Physical Science (Maths)',
+                        'ICT Stream',
+                      ].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => applyStreamPreset(tag)}
+                          className={`text-[10px] px-2 py-1 rounded-lg border transition-colors ${
+                            studentStream === tag
+                              ? 'bg-amber-100 border-amber-300 text-amber-900 font-semibold'
+                              : 'bg-stone-100 border-stone-200 text-stone-600 hover:bg-stone-200'
+                          }`}
+                        >
+                          + {tag}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="mt-3 p-3 rounded-xl bg-sky-50 border border-sky-200 text-[11px] text-sky-900 flex items-start gap-2">
+                  {/* Select Joined Subjects */}
+                  <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="font-bold text-blue-950 uppercase tracking-wider text-[11px]">
+                        Select Subjects Joining *
+                      </label>
+                      <span className="text-[10px] font-semibold text-blue-700 tabular-nums">
+                        {studentSubjects.length} selected
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-600 leading-relaxed">
+                      Your 50-question real-time PvP quiz competitions will automatically match these selected subjects.
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+                      {OFFICIAL_STUDENT_SUBJECTS.map((subj, idx) => {
+                        const isSelected = studentSubjects.includes(subj);
+                        return (
+                          <button
+                            key={subj}
+                            type="button"
+                            onClick={() => toggleStudentSubject(subj)}
+                            className={`min-h-[38px] flex items-center justify-between gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-all ${
+                              isSelected
+                                ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
+                            }`}
+                          >
+                            <span className="truncate">
+                              {idx + 1}) {subj}
+                            </span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-amber-300 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 text-[11px] text-sky-900 flex items-start gap-2">
                     <span className="text-base leading-none">🎓</span>
                     <div>
                       <p className="font-bold text-sky-950">Official Student Index Allocation</p>

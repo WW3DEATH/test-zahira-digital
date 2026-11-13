@@ -3,6 +3,8 @@ import {
   User as FirebaseUser,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -34,6 +36,8 @@ interface AuthContextType {
   googleAccessToken: string | null;
   setImpersonatedRole: (role: UserRole | null) => void;
   signInWithGoogle: () => Promise<void>;
+  signInWithGoogleRedirect: () => Promise<void>;
+  completeGoogleFallbackSignIn: (email: string, fullName?: string) => Promise<void>;
   connectGoogleCalendar: () => Promise<string | null>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (
@@ -44,6 +48,7 @@ interface AuthContextType {
     extra?: {
       subject?: string;
       stream?: string;
+      enrolledSubjects?: string[];
       studentNameOrIndex?: string;
       phone?: string;
       relationship?: string;
@@ -62,6 +67,7 @@ interface PendingSignUpData {
   role: 'teacher' | 'student' | 'parent';
   subject?: string;
   stream?: string;
+  enrolledSubjects?: string[];
   studentNameOrIndex?: string;
   phone?: string;
   relationship?: string;
@@ -75,6 +81,8 @@ let inMemoryAccessToken: string | null = null;
 export const getCachedAccessToken = (): string | null => inMemoryAccessToken;
 
 const googleLoginProvider = new GoogleAuthProvider();
+googleLoginProvider.addScope('profile');
+googleLoginProvider.addScope('email');
 googleLoginProvider.setCustomParameters({ prompt: 'select_account' });
 
 const calendarProvider = new GoogleAuthProvider();
@@ -94,6 +102,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Seed Zahira College 2k28 Science EM on boot
   useEffect(() => {
     seedInitialDatabaseIfEmpty();
+  }, []);
+
+  // Handle Google Redirect result if returning from redirect flow
+  useEffect(() => {
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          if (credential?.accessToken) {
+            inMemoryAccessToken = credential.accessToken;
+            setGoogleAccessToken(credential.accessToken);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Google redirect check note:', err?.code, err?.message);
+      });
   }, []);
 
   // Listen to Firebase Auth state
@@ -137,6 +162,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             phone: pending.phone || '',
             subject: assignedRole === 'teacher' ? (pending.subject || '') : '',
             stream: assignedRole === 'student' ? (pending.stream || '') : '',
+            enrolledSubjects: assignedRole === 'student' ? (pending.enrolledSubjects || []) : [],
             linkedStudentIds: assignedRole === 'parent' && pending.studentNameOrIndex ? [pending.studentNameOrIndex] : [],
             createdAt: new Date().toISOString(),
             assignedClassIds: [],
@@ -158,7 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (existingStored) {
             initialProfile = existingStored;
           } else {
-            const defaultName = user.displayName || (isBootstrappedAdmin ? 'M. N. M. Jaasim' : (user.email ? user.email.split('@')[0] : 'Scholar'));
+            const defaultName = user.displayName || (isBootstrappedAdmin ? 'Science Project Admin' : (user.email ? user.email.split('@')[0] : 'Scholar'));
             initialProfile = {
               userId: user.uid,
               email: user.email || '',
@@ -308,97 +334,128 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Demo role selection disabled
   };
 
+  const finalizeGoogleAuthUser = async (user: FirebaseUser, accessToken?: string | null) => {
+    if (accessToken) {
+      inMemoryAccessToken = accessToken;
+      setGoogleAccessToken(accessToken);
+    }
+    const isBootstrappedAdmin = user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com';
+    const docRef = doc(db, 'userProfiles', user.uid);
+    const existingSnap = await getDoc(docRef).catch(() => null);
+    let prof: UserProfile;
+    if (existingSnap && existingSnap.exists()) {
+      const raw = existingSnap.data() as UserProfile;
+      prof = { ...raw, userId: user.uid };
+      if (isBootstrappedAdmin && prof.role !== 'admin') {
+        prof.role = 'admin';
+      }
+      if (user.photoURL && !prof.avatarUrl) {
+        prof.avatarUrl = user.photoURL;
+      }
+    } else {
+      const displayName =
+        user.displayName ||
+        (isBootstrappedAdmin
+          ? 'Science Project Admin'
+          : (user.email ? user.email.split('@')[0] : 'Google Scholar'));
+      prof = {
+        userId: user.uid,
+        email: user.email || '',
+        fullName: displayName,
+        role: isBootstrappedAdmin ? 'admin' : 'student',
+        avatarUrl: user.photoURL || '',
+        bio: isBootstrappedAdmin
+          ? 'Administrator - Zahira College Science Project Management'
+          : `${displayName} • Zahira College 2k28 Science EM Scholar`,
+        createdAt: new Date().toISOString(),
+        assignedClassIds: [],
+        enrolledClassIds: [],
+      };
+    }
+    if (prof.role === 'student' || isBootstrappedAdmin) {
+      prof = await ensureStudentIndexNumber(prof).catch(() => prof);
+    }
+    setUserProfile(prof);
+    localStorage.setItem('zahira_auth_session', JSON.stringify(prof));
+    try {
+      await setDoc(docRef, sanitizeFirestoreDoc(prof), { merge: true });
+    } catch (dbErr) {
+      console.warn('Failed to save profile to Firestore:', dbErr);
+    }
+  };
+
   const signInWithGoogle = async () => {
     try {
       const result = await signInWithPopup(auth, googleLoginProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        inMemoryAccessToken = credential.accessToken;
-        setGoogleAccessToken(credential.accessToken);
-      }
       if (result.user) {
-        const isBootstrappedAdmin = result.user.email?.toLowerCase().trim() === 'mnmjaasim@gmail.com';
-        const docRef = doc(db, 'userProfiles', result.user.uid);
-        const existingSnap = await getDoc(docRef).catch(() => null);
-        let prof: UserProfile;
-        if (existingSnap && existingSnap.exists()) {
-          const raw = existingSnap.data() as UserProfile;
-          prof = { ...raw, userId: result.user.uid };
-          if (isBootstrappedAdmin && prof.role !== 'admin') {
-            prof.role = 'admin';
-          }
-        } else {
-          const displayName =
-            result.user.displayName ||
-            (isBootstrappedAdmin
-              ? 'M. N. M. Jaasim'
-              : (result.user.email ? result.user.email.split('@')[0] : 'Google Scholar'));
-          prof = {
-            userId: result.user.uid,
-            email: result.user.email || '',
-            fullName: displayName,
-            role: isBootstrappedAdmin ? 'admin' : 'student',
-            avatarUrl: result.user.photoURL || '',
-            bio: isBootstrappedAdmin
-              ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
-              : `${displayName} • Zahira College 2k28 Science EM Scholar`,
-            createdAt: new Date().toISOString(),
-            assignedClassIds: [],
-            enrolledClassIds: [],
-          };
-        }
-        setUserProfile(prof);
-        localStorage.setItem('zahira_auth_session', JSON.stringify(prof));
-        try {
-          await setDoc(docRef, sanitizeFirestoreDoc(prof), { merge: true });
-        } catch (dbErr) {
-          console.warn('Failed to save profile to Firestore:', dbErr);
-        }
+        await finalizeGoogleAuthUser(result.user, credential?.accessToken);
       }
     } catch (err: any) {
-      console.warn('Google Sign In error:', err?.code, err?.message);
-      // Fallback for popup closed/blocked or provider configuration issues in iframe
-      if (
-        err?.code === 'auth/operation-not-allowed' ||
-        err?.code === 'auth/popup-blocked' ||
-        err?.code === 'auth/unauthorized-domain' ||
-        err?.code === 'auth/configuration-not-found' ||
-        err?.code === 'auth/cancelled-popup-request' ||
-        err?.message?.includes('operation-not-allowed')
-      ) {
-        const promptEmail = window.prompt(
-          'Google Sign-in popup was restricted by iframe security. Please enter your email to proceed:',
-          'mnmjaasim@gmail.com'
-        );
-        if (!promptEmail || !promptEmail.trim()) {
-          return;
+      console.warn('Google Sign In popup error:', err?.code, err?.message);
+      throw err;
+    }
+  };
+
+  const signInWithGoogleRedirect = async () => {
+    await signInWithRedirect(auth, googleLoginProvider);
+  };
+
+  const completeGoogleFallbackSignIn = async (email: string, fullName?: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      throw new Error('Please enter a valid Google email address.');
+    }
+    const isAdmin = cleanEmail === 'mnmjaasim@gmail.com';
+    const fallbackId = isAdmin
+      ? 'admin_mnmjaasim'
+      : `google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    let existingProfile: UserProfile | null = null;
+    try {
+      const existingQuery = query(collection(db, 'userProfiles'), where('email', '==', cleanEmail));
+      const snap = await getDocs(existingQuery);
+      if (!snap.empty) {
+        const d = snap.docs[0];
+        existingProfile = { ...(d.data() as UserProfile), userId: (d.data() as UserProfile).userId || d.id };
+      }
+    } catch {}
+
+    const chosenName =
+      (fullName || '').trim() ||
+      existingProfile?.fullName ||
+      (isAdmin ? 'Science Project Admin' : cleanEmail.split('@')[0]);
+
+    let profile: UserProfile = existingProfile
+      ? {
+          ...existingProfile,
+          fullName: chosenName,
+          role: isAdmin ? 'admin' : existingProfile.role,
         }
-        const cleanEmail = promptEmail.trim().toLowerCase();
-        const isAdmin = cleanEmail === 'mnmjaasim@gmail.com';
-        const fallbackId = isAdmin ? 'admin_jaasim_official' : `google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const fallbackProfile: UserProfile = {
+      : {
           userId: fallbackId,
           email: cleanEmail,
-          fullName: isAdmin ? 'M. N. M. Jaasim' : cleanEmail.split('@')[0],
+          fullName: chosenName,
           role: isAdmin ? 'admin' : 'student',
-          avatarUrl: isAdmin ? (REAL_ADMIN_PROFILE.avatarUrl || '') : '',
+          avatarUrl: '',
           bio: isAdmin
-            ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
-            : `${cleanEmail.split('@')[0]} • Zahira College 2k28 Science EM Scholar`,
+            ? 'Administrator - Zahira College Science Project Management'
+            : `${chosenName} • Zahira College 2k28 Science EM Scholar`,
           createdAt: new Date().toISOString(),
           assignedClassIds: [],
           enrolledClassIds: [],
         };
-        setUserProfile(fallbackProfile);
-        localStorage.setItem('zahira_auth_session', JSON.stringify(fallbackProfile));
-        try {
-          await setDoc(doc(db, 'userProfiles', fallbackId), sanitizeFirestoreDoc(fallbackProfile), { merge: true });
-        } catch {
-          // offline ok
-        }
-        return;
-      }
-      throw err;
+
+    if (profile.role === 'student' || isAdmin) {
+      profile = await ensureStudentIndexNumber(profile).catch(() => profile);
+    }
+
+    setUserProfile(profile);
+    localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+    try {
+      await setDoc(doc(db, 'userProfiles', profile.userId), sanitizeFirestoreDoc(profile), { merge: true });
+    } catch {
+      // offline ok
     }
   };
 
@@ -419,23 +476,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
+    const cleanEmail = email.toLowerCase().trim();
+    const isAdminEmail = cleanEmail === 'mnmjaasim@gmail.com';
+
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, pass);
+      const cred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
       if (cred.user) {
-        const isAdminEmail = email.toLowerCase().trim() === 'mnmjaasim@gmail.com';
-        const prof: UserProfile = {
-          userId: cred.user.uid,
-          email: cred.user.email || email,
-          fullName: cred.user.displayName || (isAdminEmail ? 'M. N. M. Jaasim' : email.split('@')[0]),
-          role: isAdminEmail ? 'admin' : 'student',
-          avatarUrl: cred.user.photoURL || '',
-          bio: isAdminEmail
-            ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
-            : 'Zahira College 2k28 Science EM Scholar',
-          createdAt: new Date().toISOString(),
-          assignedClassIds: [],
-          enrolledClassIds: [],
-        };
+        const existingSnap = await getDoc(doc(db, 'userProfiles', cred.user.uid)).catch(() => null);
+        const existingData = existingSnap?.exists() ? (existingSnap.data() as UserProfile) : null;
+        let prof: UserProfile = existingData
+          ? {
+              ...existingData,
+              userId: cred.user.uid,
+              role: isAdminEmail ? 'admin' : existingData.role,
+            }
+          : {
+              userId: cred.user.uid,
+              email: cred.user.email || cleanEmail,
+              fullName: cred.user.displayName || (isAdminEmail ? 'Science Project Admin' : cleanEmail.split('@')[0]),
+              role: isAdminEmail ? 'admin' : 'student',
+              avatarUrl: cred.user.photoURL || '',
+              bio: isAdminEmail
+                ? 'Administrator - Zahira College Science Project Management'
+                : 'Zahira College 2k28 Science EM Scholar',
+              createdAt: new Date().toISOString(),
+              assignedClassIds: [],
+              enrolledClassIds: [],
+            };
+        if (prof.role === 'student' || isAdminEmail) {
+          prof = await ensureStudentIndexNumber(prof).catch(() => prof);
+        }
         setUserProfile(prof);
         localStorage.setItem('zahira_auth_session', JSON.stringify(prof));
         try {
@@ -447,78 +517,85 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       console.warn('signInWithEmail error:', err?.code, err?.message);
 
-      // Check if this is the designated administrator mnmjaasim@gmail.com
-      const isAdminEmail = email.toLowerCase().trim() === 'mnmjaasim@gmail.com';
-
-      // 1. If admin account mnmjaasim@gmail.com with pass jaasim2010 is not yet created in Firebase Auth, automatically create it
-      if (
-        isAdminEmail &&
-        (err.code === 'auth/user-not-found' ||
-          err.code === 'auth/invalid-credential' ||
-          err.code === 'auth/invalid-login-credentials')
-      ) {
-        try {
-          const cred = await createUserWithEmailAndPassword(auth, email, pass);
-          await updateProfile(cred.user, { displayName: 'M. N. M. Jaasim' });
-          const adminProf: UserProfile = {
-            ...REAL_ADMIN_PROFILE,
-            userId: cred.user.uid,
-            email,
-            avatarUrl: REAL_ADMIN_PROFILE.avatarUrl || '',
-          };
-          await setDoc(doc(db, 'userProfiles', cred.user.uid), sanitizeFirestoreDoc(adminProf), { merge: true });
-          setUserProfile(adminProf);
-          localStorage.setItem('zahira_auth_session', JSON.stringify(adminProf));
-          return;
-        } catch (createErr: any) {
-          if (createErr.code !== 'auth/operation-not-allowed') {
-            throw createErr;
-          }
-          // If operation-not-allowed, proceed to direct fallback below
+      // Designated administrator account: mnmjaasim@gmail.com / jaasim2010
+      if (isAdminEmail) {
+        if (pass !== 'jaasim2010') {
+          throw new Error('Incorrect password for administrator account mnmjaasim@gmail.com.');
         }
-      }
 
-      // 2. If Firebase has auth/operation-not-allowed (Email/Password disabled in Firebase Console),
-      // seamlessly authenticate the user so they are NEVER locked out!
-      if (
-        err.code === 'auth/operation-not-allowed' ||
-        err.code === 'auth/network-request-failed' ||
-        err.message?.includes('operation-not-allowed')
-      ) {
-        const profile: UserProfile = {
-          userId: isAdminEmail ? 'admin_jaasim_official' : `user_${email.replace(/[^a-zA-Z0-9]/g, '_')}`,
-          email,
-          fullName: isAdminEmail ? 'M. N. M. Jaasim' : email.split('@')[0],
-          role: isAdminEmail ? 'admin' : 'student',
+        // Provision in Firebase Auth if Email/Password is enabled and user doesn't exist yet
+        if (
+          err.code === 'auth/user-not-found' ||
+          err.code === 'auth/invalid-credential' ||
+          err.code === 'auth/invalid-login-credentials'
+        ) {
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+            await updateProfile(cred.user, { displayName: 'Science Project Admin' }).catch(() => {});
+            const adminProf: UserProfile = {
+              ...REAL_ADMIN_PROFILE,
+              userId: cred.user.uid,
+              email: cleanEmail,
+              fullName: 'Science Project Admin',
+              role: 'admin',
+              indexNumber: '2860003',
+              avatarUrl: '',
+            };
+            await setDoc(doc(db, 'userProfiles', cred.user.uid), sanitizeFirestoreDoc(adminProf), { merge: true }).catch(() => {});
+            setUserProfile(adminProf);
+            localStorage.setItem('zahira_auth_session', JSON.stringify(adminProf));
+            return;
+          } catch (createErr: any) {
+            console.warn('Admin auto-provision note:', createErr?.code);
+          }
+        }
+
+        // Fallback to verified Firestore admin profile when Firebase Auth Email/Password is disabled or linked to Google
+        const adminProf: UserProfile = {
+          userId: 'admin_mnmjaasim',
+          email: 'mnmjaasim@gmail.com',
+          fullName: 'Science Project Admin',
+          role: 'admin',
+          indexNumber: '2860003',
           avatarUrl: '',
-          bio: isAdminEmail
-            ? 'Administrator & Academic Lead - Zahira College 2k28 Science EM'
-            : 'Zahira College 2k28 Science EM Scholar',
+          bio: 'Administrator - Zahira College Science Project Management',
           createdAt: new Date().toISOString(),
           assignedClassIds: [],
           enrolledClassIds: [],
         };
-        setUserProfile(profile);
-        localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+        setUserProfile(adminProf);
+        localStorage.setItem('zahira_auth_session', JSON.stringify(adminProf));
         try {
-          await setDoc(doc(db, 'userProfiles', profile.userId), sanitizeFirestoreDoc(profile), { merge: true });
-        } catch {
-          // offline ok
-        }
+          await setDoc(doc(db, 'userProfiles', adminProf.userId), sanitizeFirestoreDoc(adminProf), { merge: true });
+        } catch {}
         return;
       }
 
-      // 3. Check if user profile exists in Firestore userProfiles
-      const cleanEmail = email.toLowerCase().trim();
-      const userQuery = query(collection(db, 'userProfiles'), where('email', '==', cleanEmail));
-      const querySnap = await getDocs(userQuery).catch(() => null);
-      if (querySnap && !querySnap.empty) {
-        const foundDoc = querySnap.docs[0];
-        const raw = foundDoc.data() as UserProfile;
-        const profile: UserProfile = { ...raw, userId: raw.userId || foundDoc.id };
-        setUserProfile(profile);
-        localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
-        return;
+      // If Firebase Email/Password provider is disabled on the project (auth/operation-not-allowed),
+      // look up verified profile stored in Firestore userProfiles so accounts created locally can sign in.
+      if (
+        err.code === 'auth/operation-not-allowed' ||
+        err.code === 'auth/configuration-not-found' ||
+        err.code === 'auth/admin-restricted-operation' ||
+        err.message?.includes('operation-not-allowed')
+      ) {
+        const userQuery = query(collection(db, 'userProfiles'), where('email', '==', cleanEmail));
+        const querySnap = await getDocs(userQuery).catch(() => null);
+        if (querySnap && !querySnap.empty) {
+          const foundDoc = querySnap.docs[0];
+          const raw = foundDoc.data() as UserProfile;
+          let profile: UserProfile = { ...raw, userId: raw.userId || foundDoc.id };
+          if (profile.role === 'student') {
+            profile = await ensureStudentIndexNumber(profile).catch(() => profile);
+          }
+          setUserProfile(profile);
+          localStorage.setItem('zahira_auth_session', JSON.stringify(profile));
+          return;
+        }
+      }
+
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-login-credentials') {
+        throw new Error('Invalid email or password. Please verify your credentials or create an account.');
       }
 
       throw new Error(
@@ -535,6 +612,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     extra?: {
       subject?: string;
       stream?: string;
+      enrolledSubjects?: string[];
       studentNameOrIndex?: string;
       phone?: string;
       relationship?: string;
@@ -574,6 +652,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bioText = `${name} (${extra?.relationship || 'Parent'}) of ${extra?.studentNameOrIndex || '2k28 Science EM Scholar'} - Zahira College`;
         }
 
+        const studentEnrolledSubjects =
+          assignedRole === 'student' ? (extra?.enrolledSubjects || []) : [];
+
         const profile: UserProfile = {
           userId: credential.user.uid,
           email: cleanEmail,
@@ -584,6 +665,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: extra?.phone || '',
           subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
           stream: (assignedRole === 'student' ? extra?.stream : '') || '',
+          enrolledSubjects: studentEnrolledSubjects,
           linkedStudentIds: assignedRole === 'parent' && extra?.studentNameOrIndex ? [extra.studentNameOrIndex] : [],
           enrolledClassIds: [],
           assignedClassIds: [],
@@ -604,6 +686,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               email: cleanEmail,
               indexNumber: studentIndex,
               stream: extra?.stream || '2k28 Science EM',
+              enrolledSubjects: studentEnrolledSubjects,
               enrolledAt: new Date().toISOString(),
             },
             { merge: true }
@@ -634,7 +717,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ) {
         const isAdmin = cleanEmail === 'mnmjaasim@gmail.com';
         const assignedRole: UserRole = isAdmin ? 'admin' : role;
-        const localId = isAdmin ? 'admin_jaasim_official' : `user_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const localId = isAdmin ? 'admin_mnmjaasim' : `user_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
         let studentIndex: string | undefined = undefined;
         if (assignedRole === 'student' || isAdmin) {
@@ -650,16 +733,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           bioText = `${name} (${extra?.relationship || 'Parent'}) of ${extra?.studentNameOrIndex || '2k28 Science EM Scholar'} - Zahira College`;
         }
 
+        const studentEnrolledSubjects =
+          assignedRole === 'student' ? (extra?.enrolledSubjects || []) : [];
+
         const profile: UserProfile = {
           userId: localId,
           email: cleanEmail,
-          fullName: name || (isAdmin ? 'M. N. M. Jaasim' : cleanEmail.split('@')[0]),
+          fullName: name || (isAdmin ? 'Science Project Admin' : cleanEmail.split('@')[0]),
           role: assignedRole,
           indexNumber: studentIndex,
           avatarUrl: '',
           phone: extra?.phone || '',
           subject: (assignedRole === 'teacher' ? extra?.subject : '') || '',
           stream: (assignedRole === 'student' ? extra?.stream : '') || '',
+          enrolledSubjects: studentEnrolledSubjects,
           linkedStudentIds: assignedRole === 'parent' && extra?.studentNameOrIndex ? [extra.studentNameOrIndex] : [],
           enrolledClassIds: [],
           assignedClassIds: [],
@@ -680,6 +767,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 email: cleanEmail,
                 indexNumber: studentIndex,
                 stream: extra?.stream || '2k28 Science EM',
+                enrolledSubjects: studentEnrolledSubjects,
                 enrolledAt: new Date().toISOString(),
               },
               { merge: true }
@@ -764,6 +852,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         googleAccessToken,
         setImpersonatedRole,
         signInWithGoogle,
+        signInWithGoogleRedirect,
+        completeGoogleFallbackSignIn,
         connectGoogleCalendar,
         signInWithEmail,
         signUpWithEmail,

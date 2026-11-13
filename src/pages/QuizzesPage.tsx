@@ -16,11 +16,12 @@ import {
   X,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { Quiz, QuizQuestion, QuizAttempt } from '../types';
+import { Quiz, QuizQuestion, QuizAttempt, QuizScoreEvent } from '../types';
 import { SEED_QUIZZES } from '../services/dataService';
 import { broadcastSystemNotification } from '../services/notificationService';
+import { AIMarkdownMath } from '../components/common/AIMarkdownMath';
 
 export const QuizzesPage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -126,9 +127,10 @@ export const QuizzesPage: React.FC = () => {
     };
     setQuizResult(result);
 
-    // Save attempt in Firestore
+    // Save attempt in Firestore + sync to Top 20 Leaderboard events
     try {
       const attemptId = `attempt-${Date.now()}`;
+      const completedAt = new Date().toISOString();
       const attemptDoc: QuizAttempt = {
         id: attemptId,
         quizId: activeQuiz.id,
@@ -139,9 +141,27 @@ export const QuizzesPage: React.FC = () => {
         score,
         maxScore,
         status: 'completed',
-        completedAt: new Date().toISOString(),
+        completedAt,
       };
       await setDoc(doc(db, 'quizAttempts', attemptId), attemptDoc);
+
+      const correctCount = details.filter((d) => d.isCorrect).length;
+      const scoreEvent: QuizScoreEvent = {
+        id: `score-std-${attemptId}`,
+        userId: userProfile?.userId || 'zahira_student',
+        userName: userProfile?.fullName || 'Zahira Student Scholar',
+        userRole: activeRole,
+        indexNumber: userProfile?.indexNumber,
+        mode: 'standard_quiz',
+        matchId: activeQuiz.id,
+        subject: activeQuiz.title || 'Academic Quiz',
+        pointsEarned: score * 10,
+        correctCount,
+        totalQuestions: activeQuiz.questions.length,
+        isWin: false,
+        completedAt,
+      };
+      await setDoc(doc(db, 'quizScoreEvents', scoreEvent.id), sanitizeFirestoreDoc(scoreEvent));
     } catch (e) {
       console.error('Failed to save quiz attempt:', e);
     }
@@ -301,9 +321,10 @@ export const QuizzesPage: React.FC = () => {
                             <span className="text-emerald-700 font-bold">{d.question.correctAnswer}</span>
                           </p>
                         )}
-                        <p className="text-[11px] text-stone-500 italic mt-1.5 pt-1.5 border-t border-stone-200/50">
-                          Explanation: {d.question.explanation}
-                        </p>
+                        <div className="text-[11px] text-stone-600 mt-2 pt-2 border-t border-stone-200/50">
+                          <span className="font-semibold text-stone-500 block mb-0.5">Explanation:</span>
+                          <AIMarkdownMath content={d.question.explanation || ''} className="text-[12px] text-stone-700" />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -330,9 +351,10 @@ export const QuizzesPage: React.FC = () => {
 
                 {/* Question Text */}
                 <div className="rounded-xl bg-stone-50 p-4 border border-stone-200">
-                  <p className="text-sm font-bold text-stone-900 leading-relaxed">
-                    {activeQuiz.questions[currentQuestionIndex].questionText}
-                  </p>
+                  <AIMarkdownMath
+                    content={activeQuiz.questions[currentQuestionIndex].questionText || ''}
+                    className="text-sm font-bold text-stone-900"
+                  />
                 </div>
 
                 {/* Question Answers */}
@@ -453,7 +475,7 @@ export const QuizzesPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-stone-600 uppercase tracking-wider block mb-1 text-[11px]">
                     Difficulty Level
