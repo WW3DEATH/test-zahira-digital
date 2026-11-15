@@ -168,7 +168,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   };
 
   const handleBulkUpdateClass = async () => {
-    if (selectedUserIds.length === 0) return;
+    if (selectedUserIds.length === 0 || !bulkClassId) return;
     setBulkUpdating(true);
     setBulkFeedback(null);
     try {
@@ -273,12 +273,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               <span>Virtual Science Labs</span>
             </button>
             <button
-              onClick={() => onNavigate('admin_panel')}
+              onClick={() => onNavigate('admin_panel:chats')}
               className="inline-flex items-center gap-2 rounded-xl bg-blue-800 hover:bg-blue-700 border border-blue-400/30 px-4 py-2.5 text-xs font-semibold text-white transition-colors"
               title="Audit and monitor student, faculty, and parent private chats"
             >
               <MessageSquare className="w-4 h-4 text-sky-300" />
               <span>Personal Chats Audit</span>
+            </button>
+            <button
+              onClick={() => onNavigate('admin_panel:discussion_room')}
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-800 hover:bg-indigo-700 border border-indigo-400/30 px-4 py-2.5 text-xs font-semibold text-white transition-colors"
+              title="Inspect and moderate all Discussion Room chats & files"
+            >
+              <MessageSquare className="w-4 h-4 text-amber-300" />
+              <span>Discussion Room Audit</span>
             </button>
             <button
               onClick={() => onNavigate('calendar')}
@@ -554,15 +562,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                   onChange={(e) => setBulkClassId(e.target.value)}
                   className="w-full rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs font-medium text-stone-800 focus:outline-none"
                 >
-                  {classes.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.name} ({cls.grade})
-                    </option>
-                  ))}
+                  {classes.length === 0 ? (
+                    <option value="">No classes available</option>
+                  ) : (
+                    classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.name} ({cls.grade})
+                      </option>
+                    ))
+                  )}
                 </select>
                 <button
                   onClick={handleBulkUpdateClass}
-                  disabled={bulkUpdating}
+                  disabled={bulkUpdating || !bulkClassId}
                   className="rounded-md bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-3 py-1 text-xs font-bold text-stone-950 transition-colors shrink-0"
                 >
                   {bulkUpdating ? 'Assigning...' : 'Assign Cohort'}

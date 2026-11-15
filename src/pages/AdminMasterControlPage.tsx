@@ -35,6 +35,11 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  MessagesSquare,
+  Paperclip,
+  ExternalLink,
+  Hash,
+  MessageSquareText,
 } from 'lucide-react';
 import {
   collection,
@@ -43,6 +48,7 @@ import {
   setDoc,
   deleteDoc,
   addDoc,
+  getDocs,
   query,
   where,
 } from 'firebase/firestore';
@@ -60,6 +66,9 @@ import {
   UserRole,
   Conversation,
   DirectMessage,
+  Discussion,
+  DiscussionReply,
+  DiscussionRoomMessage,
 } from '../types';
 import { REAL_ADMIN_PROFILE } from '../services/dataService';
 
@@ -69,6 +78,7 @@ type AdminTab =
   | 'classes'
   | 'users'
   | 'chats'
+  | 'discussion_room'
   | 'announcements'
   | 'calendar'
   | 'materials';
@@ -122,6 +132,19 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
   const [chatSearch, setChatSearch] = useState<string>('');
   const [chatRoleFilter, setChatRoleFilter] = useState<'all' | 'students' | 'teachers' | 'parents'>('all');
   const [adminReplyText, setAdminReplyText] = useState<string>('');
+  const [confirmDeleteChatMsgId, setConfirmDeleteChatMsgId] = useState<string | null>(null);
+  const [confirmDeleteConvId, setConfirmDeleteConvId] = useState<string | null>(null);
+
+  // Discussion Room Oversight State (Admin view of Discussion Room channels, files, and Forum threads)
+  const [roomMessages, setRoomMessages] = useState<DiscussionRoomMessage[]>([]);
+  const [forumTopics, setForumTopics] = useState<Discussion[]>([]);
+  const [forumReplies, setForumReplies] = useState<DiscussionReply[]>([]);
+  const [discSubTab, setDiscSubTab] = useState<'channels' | 'topics'>('channels');
+  const [discChannelFilter, setDiscChannelFilter] = useState<string>('all');
+  const [discSearch, setDiscSearch] = useState<string>('');
+  const [confirmDeleteRoomMsgId, setConfirmDeleteRoomMsgId] = useState<string | null>(null);
+  const [confirmDeleteTopicId, setConfirmDeleteTopicId] = useState<string | null>(null);
+  const [confirmDeleteReplyId, setConfirmDeleteReplyId] = useState<string | null>(null);
 
   // Modals & temporary editing states
   const [editingSubject, setEditingSubject] = useState<Partial<Subject> | null>(null);
@@ -212,6 +235,24 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       }
     });
 
+    const unsubRoomMessages = onSnapshot(collection(db, 'discussionRoomMessages'), (snap) => {
+      const list: DiscussionRoomMessage[] = [];
+      snap.forEach((d) => list.push({ ...(d.data() as DiscussionRoomMessage), id: d.id }));
+      setRoomMessages(list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    });
+
+    const unsubForumTopics = onSnapshot(collection(db, 'discussions'), (snap) => {
+      const list: Discussion[] = [];
+      snap.forEach((d) => list.push({ ...(d.data() as Discussion), id: d.id }));
+      setForumTopics(list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    });
+
+    const unsubForumReplies = onSnapshot(collection(db, 'discussionReplies'), (snap) => {
+      const list: DiscussionReply[] = [];
+      snap.forEach((d) => list.push({ ...(d.data() as DiscussionReply), id: d.id }));
+      setForumReplies(list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+    });
+
     return () => {
       unsubSubjects();
       unsubClasses();
@@ -220,6 +261,9 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
       unsubEvents();
       unsubMaterials();
       unsubConversations();
+      unsubRoomMessages();
+      unsubForumTopics();
+      unsubForumReplies();
     };
   }, []);
 
@@ -304,13 +348,111 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
 
   const handleDeleteConversation = async (convId: string) => {
     try {
-      setConversations((prev) => prev.filter((c) => c.id !== convId));
-      if (selectedConvId === convId) setSelectedConvId(null);
+      const remainingConvs = conversations.filter((c) => c.id !== convId);
+      setConversations(remainingConvs);
+      setConfirmDeleteConvId(null);
+      if (selectedConvId === convId) {
+        setSelectedConvId(remainingConvs[0]?.id || null);
+        setConvMessages([]);
+      }
+      const msgsSnap = await getDocs(query(collection(db, 'messages'), where('conversationId', '==', convId)));
+      await Promise.all(msgsSnap.docs.map((mDoc) => deleteDoc(doc(db, 'messages', mDoc.id))));
       await deleteDoc(doc(db, 'conversations', convId));
-      triggerNotice('Conversation permanently deleted from Firebase.');
+      triggerNotice('Conversation and its messages permanently deleted from Firebase.');
     } catch (err: any) {
       triggerNotice('Error removing conversation: ' + err.message);
     }
+  };
+
+  const handleDeleteChatMessage = async (msgId: string) => {
+    if (!selectedConvId) return;
+    try {
+      const remaining = convMessages.filter((m) => m.id !== msgId);
+      setConvMessages(remaining);
+      setConfirmDeleteChatMsgId(null);
+      await deleteDoc(doc(db, 'messages', msgId));
+      const latestMsg = remaining[remaining.length - 1];
+      await setDoc(
+        doc(db, 'conversations', selectedConvId),
+        {
+          lastMessage: latestMsg ? latestMsg.text : 'Message deleted',
+          lastMessageAt: latestMsg ? latestMsg.createdAt : new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      triggerNotice('Message permanently deleted from interface and Firebase.');
+    } catch (err: any) {
+      triggerNotice('Error deleting message: ' + err.message);
+    }
+  };
+
+  const handleDeleteRoomMessage = async (msgId: string) => {
+    try {
+      setRoomMessages((prev) => prev.filter((m) => m.id !== msgId));
+      setConfirmDeleteRoomMsgId(null);
+      await deleteDoc(doc(db, 'discussionRoomMessages', msgId));
+      triggerNotice('Discussion Room message deleted from interface and Firebase.');
+    } catch (err: any) {
+      triggerNotice('Error deleting Discussion Room message: ' + err.message);
+    }
+  };
+
+  const handleDeleteForumTopic = async (topicId: string) => {
+    try {
+      setForumTopics((prev) => prev.filter((t) => t.id !== topicId));
+      setForumReplies((prev) => prev.filter((r) => r.discussionId !== topicId));
+      setConfirmDeleteTopicId(null);
+      const repSnap = await getDocs(query(collection(db, 'discussionReplies'), where('discussionId', '==', topicId)));
+      await Promise.all(repSnap.docs.map((rDoc) => deleteDoc(doc(db, 'discussionReplies', rDoc.id))));
+      await deleteDoc(doc(db, 'discussions', topicId));
+      triggerNotice('Forum topic and replies deleted from interface and Firebase.');
+    } catch (err: any) {
+      triggerNotice('Error deleting forum topic: ' + err.message);
+    }
+  };
+
+  const handleDeleteForumReply = async (replyItem: DiscussionReply) => {
+    try {
+      const remainingReplies = forumReplies.filter((r) => r.id !== replyItem.id);
+      setForumReplies(remainingReplies);
+      setConfirmDeleteReplyId(null);
+      await deleteDoc(doc(db, 'discussionReplies', replyItem.id));
+      const parentCount = remainingReplies.filter((r) => r.discussionId === replyItem.discussionId).length;
+      await setDoc(
+        doc(db, 'discussions', replyItem.discussionId),
+        { repliesCount: parentCount },
+        { merge: true }
+      );
+      triggerNotice('Forum reply deleted from interface and Firebase.');
+    } catch (err: any) {
+      triggerNotice('Error deleting forum reply: ' + err.message);
+    }
+  };
+
+  const handleExportDiscussionLog = (msgs: DiscussionRoomMessage[]) => {
+    let output = `========================================================\n`;
+    output += `ZAHIRA COLLEGE 2K28 SCIENCE EM - DISCUSSION ROOM AUDIT\n`;
+    output += `CHANNEL FILTER: ${discChannelFilter.toUpperCase()}\n`;
+    output += `EXPORTED AT: ${new Date().toLocaleString()}\n`;
+    output += `TOTAL MESSAGES: ${msgs.length}\n`;
+    output += `========================================================\n\n`;
+
+    msgs.forEach((m, idx) => {
+      output += `[${idx + 1}] [${m.roomName || m.roomId}] ${new Date(m.createdAt).toLocaleString()} | ${m.authorName} (${m.authorRole})\n`;
+      if (m.text) output += `    Message: ${m.text}\n`;
+      if (m.attachmentName) output += `    Attachment: ${m.attachmentName} (${m.attachmentSize || ''})\n`;
+      output += '\n';
+    });
+
+    const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Audit_Discussion_Room_${new Date().toISOString().split('T')[0]}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    triggerNotice('Discussion Room audit log downloaded!');
   };
 
   const triggerNotice = (msg: string) => {
@@ -623,6 +765,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                 { id: 'classes', label: `Classes (${classes.length})`, icon: GraduationCap },
                 { id: 'users', label: `Users & Roles (${users.length})`, icon: Users },
                 { id: 'chats', label: `Personal Chats (${conversations.length})`, icon: MessageSquare },
+                { id: 'discussion_room', label: `Discussion Room (${roomMessages.length})`, icon: MessagesSquare },
                 { id: 'announcements', label: `Notices (${announcements.length})`, icon: Bell },
                 { id: 'calendar', label: `Calendar Events (${events.length})`, icon: Calendar },
                 { id: 'materials', label: `Materials (${materials.length})`, icon: BookMarked },
@@ -662,7 +805,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
           <div className="flex items-center justify-between text-[11px] text-blue-200 mt-1 px-1">
             <span className="flex items-center gap-1.5 opacity-90">
               <span className="inline-block w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-              <span>Scroll horizontally or use arrow buttons to access all 8 administration modules</span>
+              <span>Scroll horizontally or use arrow buttons to access all 9 administration modules</span>
             </span>
             <span className="font-mono text-[10px] bg-blue-900/80 border border-blue-400/30 px-2.5 py-0.5 rounded-full text-blue-100">
               Active: {activeTab.toUpperCase()}
@@ -1626,16 +1769,36 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                                 ? new Date(conv.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                                 : ''}
                             </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteConversation(conv.id);
-                              }}
-                              className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-                              title="Delete conversation"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {confirmDeleteConvId === conv.id ? (
+                              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteConversation(conv.id)}
+                                  className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold hover:bg-red-700"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteConvId(null)}
+                                  className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-semibold"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDeleteConvId(conv.id);
+                                }}
+                                className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                title="Delete conversation"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1716,9 +1879,38 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                                       <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
                                       {msg.senderName}
                                     </span>
-                                    <span className="text-[10px] text-red-700">
-                                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-red-700">
+                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                      {confirmDeleteChatMsgId === msg.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteChatMessage(msg.id)}
+                                            className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold"
+                                          >
+                                            Delete
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmDeleteChatMsgId(null)}
+                                            className="px-1.5 py-0.5 rounded bg-white text-slate-700 text-[10px] font-semibold border border-slate-200"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteChatMsgId(msg.id)}
+                                          className="p-1 rounded text-red-600 hover:bg-red-100"
+                                          title="Delete message from Firebase"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                   <p className="text-red-950 font-medium leading-relaxed">{msg.text}</p>
                                 </div>
@@ -1740,13 +1932,46 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                                     >
                                       {msg.senderName}
                                     </span>
-                                    <span
-                                      className={`text-[10px] ${
-                                        isFaculty ? 'text-blue-200' : 'text-slate-400'
-                                      }`}
-                                    >
-                                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`text-[10px] ${
+                                          isFaculty ? 'text-blue-200' : 'text-slate-400'
+                                        }`}
+                                      >
+                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                      {confirmDeleteChatMsgId === msg.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteChatMessage(msg.id)}
+                                            className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold"
+                                          >
+                                            Confirm
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmDeleteChatMsgId(null)}
+                                            className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-semibold"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteChatMsgId(msg.id)}
+                                          className={`p-1 rounded transition-colors ${
+                                            isFaculty
+                                              ? 'text-blue-200 hover:text-white hover:bg-white/15'
+                                              : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                                          }`}
+                                          title="Delete message from Firebase"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                   <p className="leading-relaxed font-normal">{msg.text}</p>
                                 </div>
@@ -1798,6 +2023,364 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                 )}
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: DISCUSSION ROOM CHATS & FORUM MODERATION OVERSIGHT */}
+      {activeTab === 'discussion_room' && (
+        <div className="rounded-2xl border border-blue-100 bg-white p-6 md:p-8 shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-blue-50">
+            <div>
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-bold text-indigo-900 border border-indigo-200 mb-1">
+                <MessagesSquare className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Admin Live Moderation & Audit</span>
+              </div>
+              <h2 className="font-serif text-xl font-bold text-blue-950">
+                Discussion Room Channels & Shared Files Oversight
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Inspect all live subject-channel chats, uploaded study files, and Q&amp;A discussion threads across Zahira College 2k28 Science EM.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setDiscSubTab('channels')}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                    discSubTab === 'channels'
+                      ? 'bg-blue-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Hash className="w-3.5 h-3.5" />
+                  <span>Live Chats ({roomMessages.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscSubTab('topics')}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                    discSubTab === 'topics'
+                      ? 'bg-blue-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <MessageSquareText className="w-3.5 h-3.5" />
+                  <span>Forum Topics ({forumTopics.length})</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleExportDiscussionLog(
+                  roomMessages.filter((m) => discChannelFilter === 'all' || m.roomId === discChannelFilter)
+                )}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold px-3 py-2 text-xs transition-colors"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-900" />
+                <span>Export Log</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search & Subject Channel Filters */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={discSearch}
+                onChange={(e) => setDiscSearch(e.target.value)}
+                placeholder="Search by author, message content, or uploaded filename..."
+                className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-blue-600 text-xs font-medium"
+              />
+              {discSearch && (
+                <button
+                  type="button"
+                  onClick={() => setDiscSearch('')}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {discSubTab === 'channels' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+                {[
+                  { id: 'all', label: 'All Rooms' },
+                  { id: 'general', label: 'General' },
+                  { id: 'cmath', label: 'C.Maths' },
+                  { id: 'bio', label: 'Bio' },
+                  { id: 'physics', label: 'Physics' },
+                  { id: 'chemistry', label: 'Chemistry' },
+                  { id: 'ict', label: 'ICT' },
+                ].map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => setDiscChannelFilter(ch.id)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+                      discChannelFilter === ch.id
+                        ? 'bg-blue-900 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {ch.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Live Discussion Room Channel Messages List */}
+          {discSubTab === 'channels' ? (
+            (() => {
+              const q = discSearch.trim().toLowerCase();
+              const filteredRoomMsgs = roomMessages.filter((m) => {
+                const matchRoom = discChannelFilter === 'all' || m.roomId === discChannelFilter;
+                const matchSearch =
+                  !q ||
+                  (m.authorName || '').toLowerCase().includes(q) ||
+                  (m.text || '').toLowerCase().includes(q) ||
+                  (m.attachmentName || '').toLowerCase().includes(q) ||
+                  (m.roomName || m.roomId || '').toLowerCase().includes(q);
+                return matchRoom && matchSearch;
+              });
+
+              if (filteredRoomMsgs.length === 0) {
+                return (
+                  <div className="text-center py-12 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                    <MessagesSquare className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-slate-700">No Discussion Room messages found</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Messages and file uploads posted in the Discussion Room channels appear here in real time.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden max-h-[600px] overflow-y-auto">
+                  {filteredRoomMsgs.map((msg) => (
+                    <div key={msg.id} className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 rounded bg-blue-100 text-blue-900 px-2 py-0.5 text-[10px] font-bold">
+                            #{msg.roomName || msg.roomId}
+                          </span>
+                          <span className="font-bold text-slate-900">{msg.authorName}</span>
+                          <span className="rounded bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase">
+                            {msg.authorRole}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {new Date(msg.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+
+                        {msg.text && (
+                          <p className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">
+                            {msg.text}
+                          </p>
+                        )}
+
+                        {msg.attachmentUrl && (
+                          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs">
+                            <Paperclip className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                            <span className="font-semibold text-slate-800 truncate max-w-xs">
+                              {msg.attachmentName || 'Uploaded File'}
+                            </span>
+                            {msg.attachmentSize && (
+                              <span className="text-[10px] text-slate-500">({msg.attachmentSize})</span>
+                            )}
+                            <a
+                              href={msg.attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download={msg.attachmentName}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:underline ml-1"
+                            >
+                              <span>Open</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start">
+                        {confirmDeleteRoomMsgId === msg.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRoomMessage(msg.id)}
+                              className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold"
+                            >
+                              Confirm Delete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteRoomMsgId(null)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteRoomMsgId(msg.id)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 px-2.5 py-1 text-[11px] font-bold transition-colors"
+                            title="Delete Discussion Room message from Firebase"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
+          ) : (
+            /* Forum Topics & Replies Audit */
+            (() => {
+              const q = discSearch.trim().toLowerCase();
+              const filteredTopics = forumTopics.filter(
+                (t) =>
+                  !q ||
+                  t.title.toLowerCase().includes(q) ||
+                  t.content.toLowerCase().includes(q) ||
+                  t.authorName.toLowerCase().includes(q)
+              );
+
+              if (filteredTopics.length === 0) {
+                return (
+                  <div className="text-center py-12 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                    <MessageSquareText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-slate-700">No forum topics found</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+                  {filteredTopics.map((topic) => {
+                    const tReplies = forumReplies.filter((r) => r.discussionId === topic.id);
+                    return (
+                      <div key={topic.id} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                              <span className="rounded bg-blue-100 text-blue-900 px-2 py-0.5 font-bold uppercase text-[10px]">
+                                {topic.category}
+                              </span>
+                              <span className="font-bold text-slate-900">{topic.authorName}</span>
+                              <span className="text-slate-400">
+                                {new Date(topic.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <h3 className="font-serif text-base font-bold text-blue-950">{topic.title}</h3>
+                            <p className="text-xs text-slate-700 whitespace-pre-wrap">{topic.content}</p>
+                            {topic.attachmentUrl && (
+                              <a
+                                href={topic.attachmentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:underline pt-1"
+                              >
+                                <Paperclip className="w-3.5 h-3.5" />
+                                <span>{topic.attachmentName || 'Topic Attachment'}</span>
+                              </a>
+                            )}
+                          </div>
+
+                          <div className="shrink-0">
+                            {confirmDeleteTopicId === topic.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteForumTopic(topic.id)}
+                                  className="px-2.5 py-1 rounded-lg bg-red-600 text-white text-[11px] font-bold"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteTopicId(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteTopicId(topic.id)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1 text-[11px] font-bold"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete Topic</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {tReplies.length > 0 && (
+                          <div className="pl-4 border-l-2 border-slate-200 space-y-2 pt-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Replies ({tReplies.length})
+                            </p>
+                            {tReplies.map((rep) => (
+                              <div key={rep.id} className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 flex items-start justify-between gap-3 text-xs">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="flex items-center gap-2 text-[11px]">
+                                    <span className="font-bold text-slate-900">{rep.authorName}</span>
+                                    <span className="text-slate-400">{new Date(rep.createdAt).toLocaleString()}</span>
+                                  </div>
+                                  <p className="text-slate-700 whitespace-pre-wrap">{rep.content}</p>
+                                </div>
+                                <div className="shrink-0">
+                                  {confirmDeleteReplyId === rep.id ? (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteForumReply(rep)}
+                                        className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold"
+                                      >
+                                        Delete
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteReplyId(null)}
+                                        className="px-1.5 py-0.5 rounded bg-white text-slate-700 text-[10px] border border-slate-200"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteReplyId(rep.id)}
+                                      className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                      title="Delete reply"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()
           )}
         </div>
       )}
@@ -2221,7 +2804,7 @@ export const AdminMasterControlPage: React.FC<AdminMasterControlPageProps> = ({
                         const file = e.target.files?.[0];
                         if (!file) return;
                         if (file.size > 10 * 1024 * 1024) {
-                          alert(`File size exceeds 10 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a file under 10 MB.`);
+                          triggerNotice(`File size exceeds 10 MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a file under 10 MB.`);
                           e.target.value = '';
                           return;
                         }

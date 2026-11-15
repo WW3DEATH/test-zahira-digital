@@ -356,7 +356,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       required
                       value={studentNameOrIndex}
                       onChange={(e) => setStudentNameOrIndex(e.target.value)}
-                      placeholder="e.g. M. R. Mohamed Aadhil (2K28-SCI-001)"
+                      placeholder="e.g. Student Full Name or Index (2860004)"
                       className="w-full rounded-lg border border-amber-300 bg-white p-2 text-slate-800 text-xs focus:outline-none"
                     />
                   </div>

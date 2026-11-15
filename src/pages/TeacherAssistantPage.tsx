@@ -12,10 +12,14 @@ import {
   Sliders,
   Eye,
   Edit3,
+  Lock,
+  AlertCircle,
 } from 'lucide-react';
 import { AIMarkdownMath } from '../components/common/AIMarkdownMath';
+import { useAuth } from '../context/AuthContext';
 
 export const TeacherAssistantPage: React.FC = () => {
+  const { userProfile, activeRole } = useAuth();
   const [taskType, setTaskType] = useState<string>('lesson_plan');
   const [subject, setSubject] = useState('Combined Mathematics');
   const [gradeLevel, setGradeLevel] = useState('Zahira College 2k28 Science EM');
@@ -25,29 +29,60 @@ export const TeacherAssistantPage: React.FC = () => {
   const [generatedOutput, setGeneratedOutput] = useState('');
   const [outputViewMode, setOutputViewMode] = useState<'formatted' | 'edit'>('formatted');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  if (!userProfile || (activeRole !== 'teacher' && activeRole !== 'admin')) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-8 text-center max-w-xl mx-auto my-8 space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h2 className="font-serif text-xl font-bold text-slate-900">Faculty Access Only</h2>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Teacher AI is strictly restricted to verified Teachers and School Administrators. Please sign in with a Teacher or Admin account to access lesson planning, rubric generation, and assessment authoring tools.
+        </p>
+      </div>
+    );
+  }
 
   const handleGenerate = async () => {
     setLoading(true);
     setCopied(false);
+    setErrorMsg(null);
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      let activeCustomKey = '';
+      try {
+        activeCustomKey = (localStorage.getItem('znc_custom_gemini_api_key') || '').trim();
+      } catch {}
+      if (activeCustomKey) {
+        headers['x-gemini-api-key'] = activeCustomKey;
+      }
+
       const response = await fetch('/api/gemini/teacher-assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           taskType,
           subject,
           gradeLevel,
           topic,
           additionalNotes,
+          apiKey: activeCustomKey || undefined,
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`Service returned status ${response.status}`);
+      }
+
       const data = await response.json();
       setGeneratedOutput(data.content || 'Unable to generate curriculum content.');
-    } catch (e) {
+    } catch (e: any) {
       console.error('Teacher Assistant Error:', e);
+      setErrorMsg(e?.message || 'Unable to generate curriculum material right now. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -161,6 +196,13 @@ export const TeacherAssistantPage: React.FC = () => {
             <Sparkles className="w-4 h-4 text-amber-400" />
             <span>{loading ? 'Synthesizing Curriculum...' : 'Generate with Gemini'}</span>
           </button>
+
+          {errorMsg && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[11px] text-rose-700 flex items-center gap-2">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
         </div>
 
         {/* Output Area */}

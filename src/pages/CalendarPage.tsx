@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { jsPDF } from 'jspdf';
-import { db, sanitizeFirestoreDoc } from '../firebase';
+import { db, sanitizeFirestoreDoc, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { SchoolEvent, SchoolEventType, AttendanceRecord, AttendanceStatus, UserProfile, SchoolClass, ScheduledClass, RosterStudent } from '../types';
 import {
@@ -39,6 +39,7 @@ import {
   deleteGoogleCalendarEvent,
 } from '../services/googleCalendarService';
 import { PDFPreviewModal, PDFPreviewData } from '../components/common/PDFPreviewModal';
+import { isFakeSeedRosterStudent } from '../services/dataService';
 
 export interface CalendarPageProps {
   initialTab?: 'events' | 'attendance';
@@ -159,24 +160,41 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
     return () => unsub();
   }, [selectedClassId, attendanceDate]);
 
-  // 3. Real-time listener for student roster (isolated from website signups)
+  // 3. Real-time listener for student roster (strictly real entries; purges legacy fake seed rows)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'attendanceRoster'), (snapshot) => {
-      const list: RosterStudent[] = [];
-      snapshot.forEach((d) => list.push(d.data() as RosterStudent));
-      list.sort((a, b) => (a.indexNumber || '').localeCompare(b.indexNumber || ''));
-      setStudents(list);
-
-      setRegister((prev) => {
-        const updated = { ...prev };
-        list.forEach((s) => {
-          if (!updated[s.id]) {
-            updated[s.id] = 'present';
+    const unsub = onSnapshot(
+      collection(db, 'attendanceRoster'),
+      (snapshot) => {
+        const list: RosterStudent[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data() as RosterStudent;
+          if (isFakeSeedRosterStudent(d.id, data?.fullName)) {
+            deleteDoc(doc(db, 'attendanceRoster', d.id)).catch(() => {});
+            return;
           }
+          list.push({ ...data, id: d.id });
         });
-        return updated;
-      });
-    });
+        list.sort((a, b) => (a.indexNumber || '').localeCompare(b.indexNumber || ''));
+        setStudents(list);
+
+        setRegister((prev) => {
+          const validIds = new Set(list.map((s) => s.id));
+          const updated: Record<string, AttendanceStatus> = {};
+          Object.entries(prev).forEach(([k, v]) => {
+            if (validIds.has(k)) updated[k] = v;
+          });
+          list.forEach((s) => {
+            if (!updated[s.id]) {
+              updated[s.id] = 'present';
+            }
+          });
+          return updated;
+        });
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'attendanceRoster');
+      }
+    );
     return () => unsub();
   }, []);
 
@@ -825,12 +843,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ initialTab = 'events
     };
   };
 
-  // Stats for the active attendance date
+  // Stats for the active attendance date (calculated strictly from active real scholars)
   const totalStudents = students.length;
-  const presentCount = Object.values(register).filter((s) => s === 'present').length;
-  const absentCount = Object.values(register).filter((s) => s === 'absent').length;
-  const lateCount = Object.values(register).filter((s) => s === 'late').length;
-  const attendanceRate = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 100;
+  const presentCount = students.filter((s) => (register[s.id] || 'present') === 'present').length;
+  const absentCount = students.filter((s) => register[s.id] === 'absent').length;
+  const lateCount = students.filter((s) => register[s.id] === 'late').length;
+  const attendanceRate = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">

@@ -589,21 +589,29 @@ export const AIStudyPlannerModal: React.FC<AIStudyPlannerModalProps> = ({
                         {/* Actions & Science Link */}
                         <div className="flex flex-wrap sm:flex-col items-end gap-2 shrink-0">
                           {block.scienceReference && (
-                            <button
-                              onClick={() => {
-                                if (block.scienceReference?.database === 'AlphaFold DB') {
-                                  inspectProteinStructure(block.scienceReference.accessionOrId);
-                                } else {
-                                  window.open(block.scienceReference?.link, '_blank');
-                                }
-                              }}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800 px-2.5 py-1 text-[11px] font-bold hover:bg-teal-100 transition-colors"
-                              title={block.scienceReference.description}
-                            >
-                              <Dna className="w-3.5 h-3.5 text-teal-600" />
-                              <span>{block.scienceReference.database}: {block.scienceReference.accessionOrId}</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
+                            block.scienceReference.database === 'AlphaFold DB' ? (
+                              <button
+                                onClick={() => inspectProteinStructure(block.scienceReference!.accessionOrId)}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800 px-2.5 py-1 text-[11px] font-bold hover:bg-teal-100 transition-colors"
+                                title={block.scienceReference.description}
+                              >
+                                <Dna className="w-3.5 h-3.5 text-teal-600" />
+                                <span>{block.scienceReference.database}: {block.scienceReference.accessionOrId}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            ) : (
+                              <a
+                                href={block.scienceReference.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-300 dark:border-teal-800 px-2.5 py-1 text-[11px] font-bold hover:bg-teal-100 transition-colors"
+                                title={block.scienceReference.description}
+                              >
+                                <Dna className="w-3.5 h-3.5 text-teal-600" />
+                                <span>{block.scienceReference.database}: {block.scienceReference.accessionOrId}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )
                           )}
 
                           <button

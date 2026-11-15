@@ -16,11 +16,14 @@ import {
   UserCheck,
   Lock,
   ArrowLeft,
+  Trash2,
 } from 'lucide-react';
 import {
   collection,
   doc,
   setDoc,
+  deleteDoc,
+  getDocs,
   query,
   where,
   onSnapshot,
@@ -43,6 +46,11 @@ export const MessagesPage: React.FC = () => {
   const [availableUsers, setAvailableUsers] = useState<UserProfile[]>([]);
   const [modalSearch, setModalSearch] = useState('');
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
+
+  // Delete confirmation & feedback states
+  const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null);
+  const [confirmDeleteConvId, setConfirmDeleteConvId] = useState<string | null>(null);
+  const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -72,7 +80,7 @@ export const MessagesPage: React.FC = () => {
       (snap) => {
         const list: Conversation[] = [];
         snap.forEach((d) => {
-          const conv = d.data() as Conversation;
+          const conv = { ...(d.data() as Conversation), id: d.id };
           // Non-admin users only view conversations they are part of
           if (
             activeRole === 'admin' ||
@@ -127,7 +135,7 @@ export const MessagesPage: React.FC = () => {
 
       const unsub = onSnapshot(q, (snapshot) => {
         const msgs: DirectMessage[] = [];
-        snapshot.forEach((d) => msgs.push(d.data() as DirectMessage));
+        snapshot.forEach((d) => msgs.push({ ...(d.data() as DirectMessage), id: d.id }));
         setMessages(msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
       });
 
@@ -328,6 +336,60 @@ export const MessagesPage: React.FC = () => {
     }
   };
 
+  // Delete an individual direct message from UI & Firestore
+  const handleDeleteMessage = async (msgId: string) => {
+    const remaining = messages.filter((m) => m.id !== msgId);
+    setMessages(remaining);
+    setConfirmDeleteMsgId(null);
+
+    try {
+      await deleteDoc(doc(db, 'messages', msgId));
+
+      if (activeConversationId) {
+        const lastRemaining = remaining[remaining.length - 1];
+        await setDoc(
+          doc(db, 'conversations', activeConversationId),
+          {
+            lastMessage: lastRemaining ? lastRemaining.text : 'Message deleted',
+            lastMessageAt: lastRemaining ? lastRemaining.createdAt : new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+      setDeleteFeedback('Message deleted from chat & database.');
+      setTimeout(() => setDeleteFeedback(null), 3000);
+    } catch (e) {
+      console.error('Failed to delete message:', e);
+      setDeleteFeedback('Could not delete message. Please retry.');
+      setTimeout(() => setDeleteFeedback(null), 3500);
+    }
+  };
+
+  // Delete a conversation and all its messages from UI & Firestore
+  const handleDeleteConversation = async (convId: string) => {
+    const remainingConvs = conversations.filter((c) => c.id !== convId);
+    setConversations(remainingConvs);
+    setConfirmDeleteConvId(null);
+    if (activeConversationId === convId) {
+      setActiveConversationId(remainingConvs[0]?.id || '');
+      setMessages([]);
+      setMobileView('list');
+    }
+
+    try {
+      const msgsSnap = await getDocs(
+        query(collection(db, 'messages'), where('conversationId', '==', convId))
+      );
+      await Promise.all(msgsSnap.docs.map((d) => deleteDoc(doc(db, 'messages', d.id))));
+      await deleteDoc(doc(db, 'conversations', convId));
+      setDeleteFeedback('Conversation permanently removed.');
+      setTimeout(() => setDeleteFeedback(null), 3000);
+    } catch (e) {
+      console.error('Failed to delete conversation:', e);
+    }
+  };
+
   const filteredConversations = conversations.filter((c) => {
     const otherName =
       Object.entries(c.participantNames || {}).find(([id]) => id !== userProfile?.userId)?.[1] || '';
@@ -500,6 +562,44 @@ export const MessagesPage: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {activeConv && (
+              <div className="flex items-center gap-2 shrink-0">
+                {deleteFeedback && (
+                  <span className="hidden sm:inline text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1">
+                    {deleteFeedback}
+                  </span>
+                )}
+                {confirmDeleteConvId === activeConv.id ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteConversation(activeConv.id)}
+                      className="rounded-lg bg-rose-600 hover:bg-rose-700 px-2.5 py-1.5 text-[11px] font-bold text-white"
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteConvId(null)}
+                      className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-stone-600 hover:bg-stone-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteConvId(activeConv.id)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-white hover:bg-rose-50 hover:border-rose-200 px-2.5 py-1.5 text-[11px] font-semibold text-stone-500 hover:text-rose-600 transition-colors"
+                    title="Delete this conversation"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Delete Chat</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* REQUEST ACCEPT / DECLINE PROMPT */}
@@ -593,6 +693,8 @@ export const MessagesPage: React.FC = () => {
             ) : (
               messages.map((m) => {
                 const isMine = m.senderId === userProfile?.userId || m.senderName === userProfile?.fullName;
+                const canDelete = isMine || activeRole === 'admin';
+                const confirmingMsg = confirmDeleteMsgId === m.id;
 
                 return (
                   <div
@@ -606,13 +708,51 @@ export const MessagesPage: React.FC = () => {
                           : 'bg-white border border-stone-200 text-stone-800 rounded-bl-none'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-4 mb-1">
+                      <div className="flex items-center justify-between gap-3 mb-1">
                         <span className={`text-[10px] font-bold ${isMine ? 'text-amber-300' : 'text-stone-500'}`}>
                           {m.senderName}
                         </span>
-                        <span className="text-[9px] opacity-60">
-                          {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[9px] opacity-60">
+                            {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {canDelete && (
+                            confirmingMsg ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMessage(m.id)}
+                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-600 text-white hover:bg-rose-700"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteMsgId(null)}
+                                  className={`text-[10px] font-semibold px-1 py-0.5 rounded ${
+                                    isMine ? 'text-blue-100 hover:text-white' : 'text-stone-500 hover:text-stone-800'
+                                  }`}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteMsgId(m.id)}
+                                className={`p-1 rounded transition-colors ${
+                                  isMine
+                                    ? 'text-blue-200 hover:text-white hover:bg-white/10'
+                                    : 'text-stone-400 hover:text-rose-600 hover:bg-rose-50'
+                                }`}
+                                title="Delete message"
+                                aria-label="Delete message"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )
+                          )}
+                        </div>
                       </div>
                       <p className="whitespace-pre-wrap">{m.text}</p>
                     </div>

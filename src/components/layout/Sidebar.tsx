@@ -27,6 +27,7 @@ import {
   X,
   Swords,
   Trophy,
+  Info,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSiteConfig } from '../../context/SiteConfigContext';
@@ -129,8 +130,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ]
       : []),
     {
-      title: 'Account',
-      items: [{ id: 'profile', label: 'My Profile', hint: 'Student ID, role & account info', icon: User }],
+      title: 'Account & Information',
+      items: [
+        { id: 'profile', label: 'My Profile', hint: 'Student ID, role & account info', icon: User },
+        { id: 'about', label: 'About Us', hint: 'Zahira College AL EM Science project & credits', icon: Info },
+      ],
     },
   ];
 

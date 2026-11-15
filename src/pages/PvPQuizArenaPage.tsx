@@ -208,30 +208,32 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
     setTimeout(() => setApiKeyStatus(null), 3500);
   };
 
+  const [confirmDeleteRoomId, setConfirmDeleteRoomId] = useState<string | null>(null);
+
   // Real-time listeners
   useEffect(() => {
     const unsubMatches = onSnapshot(collection(db, 'pvpMatches'), (snap) => {
       const list: PvPMatch[] = [];
-      snap.forEach((d) => list.push(d.data() as PvPMatch));
+      snap.forEach((d) => list.push({ ...(d.data() as PvPMatch), id: d.id }));
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setMatches(list);
     });
 
     const unsubScores = onSnapshot(collection(db, 'quizScoreEvents'), (snap) => {
       const list: QuizScoreEvent[] = [];
-      snap.forEach((d) => list.push(d.data() as QuizScoreEvent));
+      snap.forEach((d) => list.push({ ...(d.data() as QuizScoreEvent), id: d.id }));
       setScoreEvents(list);
     });
 
     const unsubAttempts = onSnapshot(collection(db, 'quizAttempts'), (snap) => {
       const list: QuizAttempt[] = [];
-      snap.forEach((d) => list.push(d.data() as QuizAttempt));
+      snap.forEach((d) => list.push({ ...(d.data() as QuizAttempt), id: d.id }));
       setLegacyAttempts(list);
     });
 
     const unsubUsers = onSnapshot(collection(db, 'userProfiles'), (snap) => {
       const list: UserProfile[] = [];
-      snap.forEach((d) => list.push(d.data() as UserProfile));
+      snap.forEach((d) => list.push({ ...(d.data() as UserProfile), userId: d.id }));
       list.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
       setDirectoryUsers(list);
     });
@@ -315,7 +317,7 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
     return () => clearTimeout(advTimer);
   }, [autoAdvance, revealedAnswer, currentMatch?.id, myState?.currentIndex, myState?.finished]);
 
-  // Automatically resolve PvP winner & update deterministic leaderboard log once both players finish
+  // Automatically resolve PvP winner & update deterministic leaderboard log for BOTH players once both finish
   useEffect(() => {
     if (!currentMatch || !myUserId) return;
     if (currentMatch.mode === 'pvp' && currentMatch.status === 'active') {
@@ -346,6 +348,31 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
           winnerName,
           completedAt,
         }).catch((err) => console.warn('Match finalize note:', err));
+
+        // Write deterministic score events for BOTH host and guest so victory bonuses always sync
+        [hostState, guestState].forEach((pState) => {
+          const isWin = winnerId === pState.userId;
+          const victoryBonus = isWin ? 100 : 0;
+          const eventId = `score-${currentMatch.id}-${pState.userId}`;
+          const scoreDoc: QuizScoreEvent = {
+            id: eventId,
+            userId: pState.userId,
+            userName: pState.userName,
+            userRole: pState.userRole,
+            indexNumber: pState.indexNumber,
+            mode: 'pvp',
+            matchId: currentMatch.id,
+            subject: currentMatch.subject,
+            pointsEarned: pState.score + victoryBonus,
+            correctCount: pState.correctCount,
+            totalQuestions: currentMatch.questions.length,
+            isWin,
+            completedAt: pState.finishedAt || completedAt,
+          };
+          setDoc(doc(db, 'quizScoreEvents', eventId), sanitizeFirestoreDoc(scoreDoc), { merge: true }).catch(
+            (err) => console.warn('Leaderboard log sync note:', err)
+          );
+        });
       }
     }
   }, [currentMatch, myUserId]);
@@ -420,6 +447,12 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
           apiKey: activeCustomKey || undefined,
         }),
       });
+
+      if (!res.ok) {
+        showToast(`Question generator returned status ${res.status}. Please retry.`);
+        setCreatingMatch(false);
+        return;
+      }
 
       const data = await res.json();
       const questions: QuizQuestion[] = data.questions || [];
@@ -537,6 +570,7 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
       currentIndex: 0,
       finished: false,
       joinedAt: now,
+      lastActiveAt: now,
       lastAnswerCorrect: null,
       answers: {},
     };
@@ -574,13 +608,27 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
   };
 
   const handleCancelWaitingRoom = async () => {
-    if (!currentMatch || currentMatch.hostId !== myUserId || currentMatch.status !== 'waiting') return;
+    if (!currentMatch || (currentMatch.hostId !== myUserId && activeRole !== 'admin') || currentMatch.status !== 'waiting') return;
     try {
       await deleteDoc(doc(db, 'pvpMatches', currentMatch.id));
+      setMatches((prev) => prev.filter((m) => m.id !== currentMatch.id));
       setActiveMatchId(null);
       showToast('Cancelled open PvP challenge.');
     } catch (err) {
       console.error('Failed to cancel room:', err);
+      showToast('Could not cancel room. Please try again.');
+    }
+  };
+
+  const handleDeleteLobbyMatch = async (matchId: string) => {
+    try {
+      setMatches((prev) => prev.filter((m) => m.id !== matchId));
+      setConfirmDeleteRoomId(null);
+      await deleteDoc(doc(db, 'pvpMatches', matchId));
+      showToast('Match removed from PvP lobby and database.');
+    } catch (err) {
+      console.error('Failed to delete match:', err);
+      showToast('Could not delete room. Please try again.');
     }
   };
 
@@ -610,13 +658,14 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
 
     try {
       const timeSpentSec = Math.max(0, QUESTION_TIME_LIMIT - questionTimer);
+      const safeQuestionKey = String(currentQuestion.id || `q_${myState.currentIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_');
       await updateDoc(doc(db, 'pvpMatches', currentMatch.id), {
         [`playerStates.${myUserId}.score`]: newScore,
         [`playerStates.${myUserId}.correctCount`]: newCorrectCount,
         [`playerStates.${myUserId}.streak`]: nextStreak,
         [`playerStates.${myUserId}.lastAnswerCorrect`]: isCorrect,
         [`playerStates.${myUserId}.lastActiveAt`]: new Date().toISOString(),
-        [`playerStates.${myUserId}.answers.${currentQuestion.id}`]: {
+        [`playerStates.${myUserId}.answers.${safeQuestionKey}`]: {
           selected: choice || 'Time Expired',
           isCorrect,
           pointsAwarded,
@@ -625,6 +674,7 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
       });
     } catch (err) {
       console.error('Failed to record answer:', err);
+      showToast('Sync error recording answer. Check connection and retry.');
     } finally {
       setSubmittingAnswer(false);
     }
@@ -791,6 +841,14 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
   }, [scoreEvents, legacyAttempts, lbPeriod, lbMetric, myUserId]);
 
   const waitingMatches = matches.filter((m) => m.status === 'waiting' && m.mode === 'pvp');
+  const myOngoingMatches = myUserId
+    ? matches.filter(
+        (m) =>
+          m.status === 'active' &&
+          (m.hostId === myUserId || m.guestId === myUserId) &&
+          !m.playerStates?.[myUserId]?.finished
+      )
+    : [];
   const recentMatches = matches.filter((m) => m.status === 'completed').slice(0, 6);
 
   return (
@@ -1679,6 +1737,81 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
                   </button>
                 </form>
 
+                {/* My Active Ongoing Competitions (Resume after navigating away) */}
+                {myOngoingMatches.length > 0 && (
+                  <div className="rounded-2xl border-2 border-emerald-300 dark:border-emerald-700 bg-emerald-50/60 dark:bg-emerald-950/30 p-5 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Radio className="w-4 h-4 text-emerald-600 animate-pulse" />
+                        <h3 className="font-serif text-base font-bold text-slate-900 dark:text-slate-100">
+                          Your Active Matches (Resume)
+                        </h3>
+                      </div>
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                        {myOngoingMatches.length} in progress
+                      </span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {myOngoingMatches.map((m) => (
+                        <div
+                          key={m.id}
+                          className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-900 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                              {m.mode === 'pvp'
+                                ? `${m.hostName} vs ${m.guestName || 'Opponent'}`
+                                : `Ranked Solo Sprint · ${m.roomCode}`}
+                            </p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {m.subject} · Q{(m.playerStates?.[myUserId]?.currentIndex ?? 0) + 1}/{m.questions.length} · Score: {m.playerStates?.[myUserId]?.score ?? 0} pts
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setActiveMatchId(m.id)}
+                              className="min-h-[38px] inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 text-xs font-bold text-white"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              <span>Resume Match</span>
+                            </button>
+                            {(m.hostId === myUserId || activeRole === 'admin') && (
+                              confirmDeleteRoomId === m.id ? (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteLobbyMatch(m.id)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-bold"
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteRoomId(null)}
+                                    className="px-2 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-semibold"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteRoomId(m.id)}
+                                  className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                  title="Delete match"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Live Open PvP Challenges */}
                 <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
                   <div className="flex items-center justify-between gap-2">
@@ -1731,18 +1864,49 @@ export const PvPQuizArenaPage: React.FC<PvPQuizArenaPageProps> = ({
                               </p>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleJoinMatch(m)}
-                              className={`min-h-[42px] inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold shrink-0 transition-colors ${
-                                isMine
-                                  ? 'bg-slate-800 text-white hover:bg-slate-900'
-                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                              }`}
-                            >
-                              <Play className="w-3.5 h-3.5" />
-                              <span>{isMine ? 'Re-enter Room' : 'Accept Duel'}</span>
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleJoinMatch(m)}
+                                className={`min-h-[42px] inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold shrink-0 transition-colors ${
+                                  isMine
+                                    ? 'bg-slate-800 text-white hover:bg-slate-900'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                                }`}
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                                <span>{isMine ? 'Re-enter Room' : 'Accept Duel'}</span>
+                              </button>
+                              {(isMine || activeRole === 'admin') && (
+                                confirmDeleteRoomId === m.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteLobbyMatch(m.id)}
+                                      className="px-2.5 py-2 rounded-lg bg-red-600 text-white text-[11px] font-bold"
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteRoomId(null)}
+                                      className="px-2 py-2 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-semibold"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteRoomId(m.id)}
+                                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    title="Cancel / Delete room"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )
+                              )}
+                            </div>
                           </div>
                         );
                       })}

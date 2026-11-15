@@ -29,16 +29,16 @@ interface TutorPageProps {
 
 export const TutorPage: React.FC<TutorPageProps> = ({ initialTopic = '' }) => {
   const { userProfile } = useAuth();
-  const [subject, setSubject] = useState('Physics & Classical Mechanics');
+  const [subject, setSubject] = useState('Physics');
   const [topic, setTopic] = useState(initialTopic || 'Newtonian Dynamics & Energy Conservation');
   const [style, setStyle] = useState<'step_by_step' | 'simple' | 'socratic' | 'detailed'>('step_by_step');
-  const [enableThinking, setEnableThinking] = useState(true);
+  const [enableThinking, setEnableThinking] = useState(false);
 
   const [inputMessage, setInputMessage] = useState('');
   const [messages, setMessages] = useState<TutorChatMessage[]>([
     {
       role: 'assistant',
-      content: `Hello ${userProfile?.fullName || 'scholar'}! I'm your Gemini AI Academic Tutor, powered by Google Gemini 3.8 Flash.
+      content: `Hello ${userProfile?.fullName || 'scholar'}! I'm your Gemini AI Academic Tutor, powered by Google Gemini AI.
 You can ask me ANY question freely on **${subject}**, past papers, organic chemistry mechanisms, physics vectors, or pure mathematics theorems without needing pre-prepared questions.
 
 Type any question below and I will break it down step-by-step for you!`,
@@ -156,6 +156,10 @@ Type any question below and I will break it down step-by-step for you!`,
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
       const assistantMsg: TutorChatMessage = {
         role: 'assistant',
@@ -220,13 +224,13 @@ Type any question below and I will break it down step-by-step for you!`,
         <div>
           <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/20 px-3 py-1 text-xs font-semibold text-amber-300 border border-amber-400/30">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Google Gemini 3.8 Flash Academic Tutor</span>
+            <span>Google Gemini AI Academic Tutor</span>
           </div>
           <h2 className="font-serif text-2xl font-bold tracking-tight text-white mt-2">
             Interactive Academic Tutoring Studio
           </h2>
           <p className="text-stone-300 text-xs mt-1">
-            Ask any question dynamically without prepared templates. Powered by Google Gemini 3.8 Flash with deep step-by-step reasoning.
+            Ask any question dynamically without prepared templates. Powered by Google Gemini AI with fast step-by-step reasoning.
           </p>
         </div>
 
@@ -487,7 +491,7 @@ Type any question below and I will break it down step-by-step for you!`,
               {enableThinking && (
                 <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-bold text-blue-800 border border-blue-200">
                   <BrainCircuit className="w-3 h-3 text-blue-600" />
-                  Gemini 3.8 Flash Active
+                  Deep Reasoning Active
                 </span>
               )}
             </div>

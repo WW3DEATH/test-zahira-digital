@@ -170,9 +170,18 @@ export const QuizzesPage: React.FC = () => {
   const handleGenerateAIQuiz = async () => {
     setGenerating(true);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      let customKey = '';
+      try {
+        customKey = (localStorage.getItem('znc_custom_gemini_api_key') || '').trim();
+      } catch {}
+      if (customKey) {
+        headers['x-gemini-api-key'] = customKey;
+      }
+
       const response = await fetch('/api/gemini/quiz-generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           subject: genSubject,
           topic: genTopic,
@@ -180,8 +189,13 @@ export const QuizzesPage: React.FC = () => {
           numQuestions: genNumQuestions,
           classLevel: '2k28 Science EM',
           questionTypes: ['multiple_choice', 'true_false'],
+          apiKey: customKey || undefined,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const data = await response.json();
       const questions: QuizQuestion[] = data.questions || [];

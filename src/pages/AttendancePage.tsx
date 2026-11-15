@@ -20,12 +20,13 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
-import { db, sanitizeFirestoreDoc } from '../firebase';
+import { db, sanitizeFirestoreDoc, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { AttendanceRecord, AttendanceStatus, SchoolClass, RosterStudent, ScheduledClass } from '../types';
 import { QRAttendanceModal } from '../components/attendance/QRAttendanceModal';
 import { Plus, UserPlus, Trash2, Edit2, UploadCloud, X, CheckCheck, FileSpreadsheet, FileText, Eye, GraduationCap } from 'lucide-react';
 import { PDFPreviewModal, PDFPreviewData } from '../components/common/PDFPreviewModal';
+import { isFakeSeedRosterStudent } from '../services/dataService';
 
 export const AttendancePage: React.FC = () => {
   const { activeRole, userProfile } = useAuth();
@@ -110,43 +111,45 @@ export const AttendancePage: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Real-time listener for attendance roster (completely decoupled from website user accounts)
+  // Real-time listener for attendance roster (strictly real entries; auto-purges legacy fake seed rows)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'attendanceRoster'), async (snap) => {
-      const list: RosterStudent[] = [];
-      snap.forEach((d) => list.push(d.data() as RosterStudent));
-
-      // Seed initial 2k28 Science EM roster if empty
-      if (list.length === 0) {
-        const defaultSeed: RosterStudent[] = [
-          { id: 'roster_2860001', fullName: 'M. R. Mohamed Aadhil', indexNumber: '2860001', classId: 'general', createdAt: new Date().toISOString() },
-          { id: 'roster_2860002', fullName: 'Fathima Zahra', indexNumber: '2860002', classId: 'general', createdAt: new Date().toISOString() },
-          { id: 'roster_2860003', fullName: 'A. L. Mohamed Usman', indexNumber: '2860003', classId: 'general', createdAt: new Date().toISOString() },
-          { id: 'roster_2860004', fullName: 'S. N. Zainab Farook', indexNumber: '2860004', classId: 'general', createdAt: new Date().toISOString() },
-          { id: 'roster_2860005', fullName: 'K. M. Hamza Rizwan', indexNumber: '2860005', classId: 'general', createdAt: new Date().toISOString() },
-          { id: 'roster_2860006', fullName: 'T. M. Akeel Nazeer', indexNumber: '2860006', classId: 'general', createdAt: new Date().toISOString() },
-        ];
-        for (const s of defaultSeed) {
-          await setDoc(doc(db, 'attendanceRoster', s.id), s, { merge: true });
-        }
-        return;
-      }
-
-      list.sort((a, b) => a.indexNumber.localeCompare(b.indexNumber));
-      setStudents(list);
-
-      // Initialize register if students exist
-      setRegister((prev) => {
-        const updated = { ...prev };
-        list.forEach((s) => {
-          if (!updated[s.id]) {
-            updated[s.id] = 'present';
+    const unsub = onSnapshot(
+      collection(db, 'attendanceRoster'),
+      (snap) => {
+        const list: RosterStudent[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as RosterStudent;
+          if (isFakeSeedRosterStudent(d.id, data?.fullName)) {
+            deleteDoc(doc(db, 'attendanceRoster', d.id)).catch(() => {});
+            return;
           }
+          list.push({ ...data, id: d.id });
         });
-        return updated;
-      });
-      setLoading(false);
-    });
+
+        list.sort((a, b) => (a.indexNumber || '').localeCompare(b.indexNumber || ''));
+        setStudents(list);
+
+        // Sync register cleanly with active real students only
+        setRegister((prev) => {
+          const validIds = new Set(list.map((s) => s.id));
+          const updated: Record<string, AttendanceStatus> = {};
+          Object.entries(prev).forEach(([key, val]) => {
+            if (validIds.has(key)) updated[key] = val;
+          });
+          list.forEach((s) => {
+            if (!updated[s.id]) {
+              updated[s.id] = 'present';
+            }
+          });
+          return updated;
+        });
+        setLoading(false);
+      },
+      (error) => {
+        setLoading(false);
+        handleFirestoreError(error, OperationType.LIST, 'attendanceRoster');
+      }
+    );
     return () => unsub();
   }, []);
 
@@ -263,32 +266,6 @@ export const AttendancePage: React.FC = () => {
     }
   };
 
-  // Seed standard 2k28 Science EM roster
-  const handleSeedStandardRoster = async () => {
-    if (!isTeacherOrAdmin) return;
-    const defaultStudents = [
-      { name: 'M. R. Mohamed Aadhil', index: '2860001' },
-      { name: 'Fathima Zahra', index: '2860002' },
-      { name: 'A. L. Mohamed Usman', index: '2860003' },
-      { name: 'S. N. Zainab Farook', index: '2860004' },
-      { name: 'K. M. Hamza Rizwan', index: '2860005' },
-      { name: 'T. M. Akeel Nazeer', index: '2860006' },
-    ];
-    for (const s of defaultStudents) {
-      const studentId = `roster_${s.index}`;
-      const newStudent: RosterStudent = {
-        id: studentId,
-        fullName: s.name,
-        indexNumber: s.index,
-        classId: selectedClassId || 'general',
-        createdAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'attendanceRoster', studentId), newStudent);
-      setRegister((prev) => ({ ...prev, [studentId]: 'present' }));
-    }
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
-  };
 
   // Edit student name in attendanceRoster
   const handleSaveEditedName = async (studentId: string) => {
@@ -727,16 +704,16 @@ export const AttendancePage: React.FC = () => {
           else if (status === 'absent') aCount++;
         });
 
-        const effectiveSessions = pCount + lCount + aCount > 0 ? pCount + lCount + aCount : totalRecordedSessions;
-        const rate =
-          pCount + lCount + aCount > 0
-            ? Math.round(((pCount + lCount * 0.5) / effectiveSessions) * 100)
-            : 92;
+        const hasSessions = pCount + lCount + aCount > 0;
+        const effectiveSessions = pCount + lCount + aCount;
+        const rate = hasSessions
+          ? Math.round(((pCount + lCount * 0.5) / effectiveSessions) * 100)
+          : 0;
 
         totalCohortRateSum += rate;
-        if (rate < 75) scholarsBelow75++;
+        if (hasSessions && rate < 75) scholarsBelow75++;
 
-        const indexNo = st.indexNumber || `286000${idx + 1}`;
+        const indexNo = st.indexNumber || `—`;
 
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
@@ -750,22 +727,26 @@ export const AttendancePage: React.FC = () => {
 
         doc.setFontSize(8.5);
         doc.setTextColor(22, 101, 52);
-        doc.text(String(pCount || (rate >= 90 ? effectiveSessions : effectiveSessions - 1)), 98, y + 1);
+        doc.text(String(pCount), 98, y + 1);
 
         doc.setTextColor(180, 83, 9);
-        doc.text(String(lCount || 0), 118, y + 1);
+        doc.text(String(lCount), 118, y + 1);
 
         doc.setTextColor(185, 28, 28);
-        doc.text(String(aCount || (rate < 75 ? 3 : 0)), 136, y + 1);
+        doc.text(String(aCount), 136, y + 1);
 
         doc.setFont('helvetica', 'bold');
-        if (rate >= 90) doc.setTextColor(22, 101, 52);
+        if (!hasSessions) doc.setTextColor(100, 116, 139);
+        else if (rate >= 90) doc.setTextColor(22, 101, 52);
         else if (rate >= 75) doc.setTextColor(30, 64, 175);
         else doc.setTextColor(185, 28, 28);
-        doc.text(`${rate}%`, 154, y + 1);
+        doc.text(hasSessions ? `${rate}%` : '—', 154, y + 1);
 
         doc.setFontSize(7.5);
-        if (rate >= 75) {
+        if (!hasSessions) {
+          doc.setTextColor(100, 116, 139);
+          doc.text('No Logs Yet', 170, y + 1);
+        } else if (rate >= 75) {
           doc.setTextColor(71, 85, 105);
           doc.text('Satisfactory', 170, y + 1);
         } else {
@@ -780,7 +761,7 @@ export const AttendancePage: React.FC = () => {
         }
       });
 
-      const avgCohortRate = students.length > 0 ? Math.round(totalCohortRateSum / students.length) : 95;
+      const avgCohortRate = students.length > 0 ? Math.round(totalCohortRateSum / students.length) : 0;
 
       // Bottom Cohort Audit Summary
       doc.setDrawColor(226, 232, 240);
@@ -810,13 +791,39 @@ export const AttendancePage: React.FC = () => {
   };
 
   const totalStudents = students.length;
-  const presentCount = Object.values(register).filter((s) => s === 'present').length;
-  const absentCount = Object.values(register).filter((s) => s === 'absent').length;
-  const lateCount = Object.values(register).filter((s) => s === 'late').length;
-  const attendanceRate = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 100;
+  const presentCount = students.filter((s) => (register[s.id] || 'present') === 'present').length;
+  const absentCount = students.filter((s) => register[s.id] === 'absent').length;
+  const lateCount = students.filter((s) => register[s.id] === 'late').length;
+  const attendanceRate = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
 
-  // Student's personal attendance history
-  const studentUserRecord = userProfile?.userId ? register[userProfile.userId] || 'present' : 'present';
+  // Compute logged-in student's real attendance metrics from recorded Firestore attendance logs
+  const studentMatchingRosterIds = students
+    .filter(
+      (s) =>
+        s.id === userProfile?.userId ||
+        (userProfile?.indexNumber && s.indexNumber === userProfile.indexNumber) ||
+        (userProfile?.fullName && s.fullName.trim().toLowerCase() === userProfile.fullName.trim().toLowerCase())
+    )
+    .map((s) => s.id);
+  const candidateIds = Array.from(new Set([userProfile?.userId, ...studentMatchingRosterIds].filter(Boolean) as string[]));
+  const studentRecordedSessions = attendanceRecords.filter((rec) =>
+    candidateIds.some((cid) => rec.records && rec.records[cid] !== undefined)
+  );
+  const studentPresentSessions = studentRecordedSessions.filter((rec) =>
+    candidateIds.some((cid) => rec.records?.[cid] === 'present' || rec.records?.[cid] === 'late')
+  ).length;
+  const studentAbsentSessions = studentRecordedSessions.filter((rec) =>
+    candidateIds.some((cid) => rec.records?.[cid] === 'absent')
+  ).length;
+  const personalRate =
+    studentRecordedSessions.length > 0
+      ? `${Math.round((studentPresentSessions / studentRecordedSessions.length) * 100)}%`
+      : '—';
+
+  // Student's personal attendance status for selectedDate
+  const studentUserRecord =
+    candidateIds.map((cid) => register[cid]).find(Boolean) ||
+    (studentRecordedSessions.length > 0 ? 'present' : 'not marked');
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -939,19 +946,19 @@ export const AttendancePage: React.FC = () => {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4">
             <div className="rounded-xl bg-amber-50/50 p-3 border border-amber-200/60">
-              <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Attendance Standing</span>
-              <p className="font-serif text-xl font-bold text-amber-950 mt-0.5">97.8%</p>
-              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">Eligible for Board Exams</p>
+              <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Cohort Present Rate</span>
+              <p className="font-serif text-xl font-bold text-amber-950 mt-0.5">{totalStudents > 0 ? `${attendanceRate}%` : '—'}</p>
+              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">{totalStudents > 0 ? `${totalStudents} registered scholars` : 'No scholars registered yet'}</p>
             </div>
             <div className="rounded-xl bg-emerald-50/50 p-3 border border-emerald-100">
-              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Total Present</span>
-              <p className="font-serif text-xl font-bold text-emerald-900 mt-0.5">46 Days</p>
-              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">Term 1 (2026)</p>
+              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Present Today</span>
+              <p className="font-serif text-xl font-bold text-emerald-900 mt-0.5">{presentCount}</p>
+              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">Session: {selectedDate}</p>
             </div>
             <div className="rounded-xl bg-rose-50/50 p-3 border border-rose-100">
-              <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">Absences Noted</span>
-              <p className="font-serif text-xl font-bold text-rose-900 mt-0.5">1 Day</p>
-              <p className="text-[10px] text-rose-700 font-medium mt-0.5">Medical excuse recorded</p>
+              <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">Absent Today</span>
+              <p className="font-serif text-xl font-bold text-rose-900 mt-0.5">{absentCount}</p>
+              <p className="text-[10px] text-rose-700 font-medium mt-0.5">Recorded by faculty</p>
             </div>
             <div className="rounded-xl bg-blue-50/50 p-3 border border-blue-100">
               <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">Faculty Marking</span>
@@ -1006,18 +1013,22 @@ export const AttendancePage: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4">
             <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Attendance Rate</span>
-              <p className="font-serif text-xl font-bold text-blue-600 mt-0.5">97.8%</p>
-              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">Exemplary Standing</p>
+              <p className="font-serif text-xl font-bold text-blue-600 mt-0.5">{personalRate}</p>
+              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                {studentRecordedSessions.length > 0 ? `${studentRecordedSessions.length} recorded session(s)` : 'Awaiting first roll-call'}
+              </p>
             </div>
             <div className="rounded-xl bg-emerald-50/50 p-3 border border-emerald-100">
               <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Present Days</span>
-              <p className="font-serif text-xl font-bold text-emerald-900 mt-0.5">46 / 47</p>
-              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">Term 1 (2026)</p>
+              <p className="font-serif text-xl font-bold text-emerald-900 mt-0.5">
+                {studentRecordedSessions.length > 0 ? `${studentPresentSessions} / ${studentRecordedSessions.length}` : '0 / 0'}
+              </p>
+              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">Verified Logs</p>
             </div>
             <div className="rounded-xl bg-red-50/50 p-3 border border-red-100">
-              <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider">Excused Absences</span>
-              <p className="font-serif text-xl font-bold text-red-900 mt-0.5">1</p>
-              <p className="text-[10px] text-red-700 font-medium mt-0.5">Medical Slip Submitted</p>
+              <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider">Absences</span>
+              <p className="font-serif text-xl font-bold text-red-900 mt-0.5">{studentAbsentSessions}</p>
+              <p className="text-[10px] text-red-700 font-medium mt-0.5">Recorded by faculty</p>
             </div>
             <div className="rounded-xl bg-blue-50/50 p-3 border border-blue-100">
               <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">Teacher Certification</span>
@@ -1304,19 +1315,8 @@ export const AttendancePage: React.FC = () => {
                 className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors shadow-2xs"
               >
                 <UploadCloud className="w-3.5 h-3.5" />
-                <span>Bulk Import Names & Indexes</span>
+                <span>Bulk Import Names &amp; Indexes</span>
               </button>
-
-              {students.length === 0 && (
-                <button
-                  type="button"
-                  onClick={handleSeedStandardRoster}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 text-xs font-bold transition-all shadow-xs"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Enroll 2k28 Roster (6 Scholars)</span>
-                </button>
-              )}
             </div>
           </div>
 
@@ -1324,7 +1324,7 @@ export const AttendancePage: React.FC = () => {
             <div className="sm:col-span-6">
               <input
                 type="text"
-                placeholder="Enter Student Full Name (e.g. Mohamed Aadhil, Fathima Zahra)..."
+                placeholder="Enter real student full name..."
                 value={newStudentName}
                 onChange={(e) => setNewStudentName(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -1334,7 +1334,7 @@ export const AttendancePage: React.FC = () => {
             <div className="sm:col-span-3">
               <input
                 type="text"
-                placeholder="Index / Reg No (optional, e.g. 2860001)"
+                placeholder="Index / Reg No (optional)"
                 value={newStudentIndex}
                 onChange={(e) => setNewStudentIndex(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -1374,22 +1374,12 @@ export const AttendancePage: React.FC = () => {
                 <tr>
                   <td colSpan={4} className="py-10 text-center text-slate-500">
                     <Users className="w-10 h-10 mx-auto text-slate-400 mb-2" />
-                    <p className="font-semibold text-slate-700 text-sm">No students registered yet in 2k28 Science EM attendance roster.</p>
+                    <p className="font-semibold text-slate-700 text-sm">No students registered yet in the attendance register.</p>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                      Teachers can enter student names in the field above without students having to create their accounts first.
+                      {isTeacherOrAdmin
+                        ? 'Enter real student names above or use Bulk Import Names & Indexes to populate your class register.'
+                        : 'Teachers can add enrolled scholars to the roll-call register.'}
                     </p>
-                    {isTeacherOrAdmin && (
-                      <div className="mt-4 flex items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handleSeedStandardRoster}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-xs font-bold transition-all shadow-xs"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Enroll Sample 2k28 Science EM Roster (6 Scholars)</span>
-                        </button>
-                      </div>
-                    )}
                   </td>
                 </tr>
               ) : (
@@ -1568,7 +1558,7 @@ export const AttendancePage: React.FC = () => {
               </p>
               <textarea
                 rows={7}
-                placeholder={`M. R. Mohamed Aadhil, 2K28-001\nFathima Zahra, 2K28-002\nA. L. Mohamed Usman, 2K28-003\nS. N. Zainab Farook, 2K28-004`}
+                placeholder={`Student Full Name 1, 2860101\nStudent Full Name 2, 2860102`}
                 value={bulkStudentText}
                 onChange={(e) => setBulkStudentText(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-xs text-slate-900 dark:text-slate-100 font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"

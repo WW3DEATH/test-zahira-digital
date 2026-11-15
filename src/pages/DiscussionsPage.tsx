@@ -23,8 +23,11 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
+  query,
   setDoc,
+  where,
 } from 'firebase/firestore';
 import { db, sanitizeFirestoreDoc } from '../firebase';
 import { useAuth } from '../context/AuthContext';
@@ -140,6 +143,8 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
   const [replyContent, setReplyContent] = useState('');
   const [pendingReplyFile, setPendingReplyFile] = useState<PendingAttachment | null>(null);
   const [replyUploading, setReplyUploading] = useState(false);
+  const [confirmDeleteReplyId, setConfirmDeleteReplyId] = useState<string | null>(null);
+  const [confirmDeleteTopicId, setConfirmDeleteTopicId] = useState<string | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement>(null);
 
   // Create Topic Modal + attachment
@@ -168,7 +173,7 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
       collection(db, 'discussionRoomMessages'),
       (snap) => {
         const list: DiscussionRoomMessage[] = [];
-        snap.forEach((d) => list.push(d.data() as DiscussionRoomMessage));
+        snap.forEach((d) => list.push({ ...(d.data() as DiscussionRoomMessage), id: d.id }));
         list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         setRoomMessages(list);
         setRoomLoading(false);
@@ -183,7 +188,7 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
       collection(db, 'discussions'),
       (snap) => {
         const dList: Discussion[] = [];
-        snap.forEach((d) => dList.push(d.data() as Discussion));
+        snap.forEach((d) => dList.push({ ...(d.data() as Discussion), id: d.id }));
         const sorted = dList.sort((a, b) => {
           if ((b.isPinned ? 1 : 0) !== (a.isPinned ? 1 : 0)) {
             return (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0);
@@ -200,7 +205,7 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
       collection(db, 'discussionReplies'),
       (snap) => {
         const rList: DiscussionReply[] = [];
-        snap.forEach((d) => rList.push(d.data() as DiscussionReply));
+        snap.forEach((d) => rList.push({ ...(d.data() as DiscussionReply), id: d.id }));
         rList.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         setReplies(rList);
       },
@@ -377,11 +382,14 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
   };
 
   const handleDeleteRoomMessage = async (msgId: string) => {
+    setRoomMessages((prev) => prev.filter((m) => m.id !== msgId));
+    setConfirmDeleteRoomMsgId(null);
+    setRoomFileError(null);
     try {
       await deleteDoc(doc(db, 'discussionRoomMessages', msgId));
-      setConfirmDeleteRoomMsgId(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete message:', err);
+      setRoomFileError(err?.message || 'Failed to delete message from database.');
     }
   };
 
@@ -506,12 +514,34 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
     }
   };
 
-  const handleDeleteTopic = async (topicId: string) => {
+  const handleDeleteReply = async (replyId: string, discussionId: string) => {
+    setReplies((prev) => prev.filter((r) => r.id !== replyId));
+    setConfirmDeleteReplyId(null);
     try {
-      await deleteDoc(doc(db, 'discussions', topicId));
-      if (selectedDiscussionId === topicId) {
-        setSelectedDiscussionId(null);
+      await deleteDoc(doc(db, 'discussionReplies', replyId));
+      const parentDisc = discussions.find((d) => d.id === discussionId);
+      if (parentDisc) {
+        const nextCount = Math.max(0, (parentDisc.repliesCount || 1) - 1);
+        await setDoc(doc(db, 'discussions', discussionId), { repliesCount: nextCount }, { merge: true });
       }
+    } catch (err) {
+      console.error('Failed to delete reply:', err);
+    }
+  };
+
+  const handleDeleteTopic = async (topicId: string) => {
+    setDiscussions((prev) => prev.filter((d) => d.id !== topicId));
+    setReplies((prev) => prev.filter((r) => r.discussionId !== topicId));
+    setConfirmDeleteTopicId(null);
+    if (selectedDiscussionId === topicId) {
+      setSelectedDiscussionId(null);
+    }
+    try {
+      const repSnap = await getDocs(
+        query(collection(db, 'discussionReplies'), where('discussionId', '==', topicId))
+      );
+      await Promise.all(repSnap.docs.map((d) => deleteDoc(doc(db, 'discussionReplies', d.id))));
+      await deleteDoc(doc(db, 'discussions', topicId));
     } catch (err) {
       console.error('Failed to delete topic:', err);
     }
@@ -1222,14 +1252,33 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
                       {(userProfile?.userId === selectedDiscussion.authorId ||
                         activeRole === 'admin' ||
                         activeRole === 'teacher') && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTopic(selectedDiscussion.id)}
-                          className="min-h-[38px] rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-2.5 py-2"
-                          title="Delete Topic"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        confirmDeleteTopicId === selectedDiscussion.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTopic(selectedDiscussion.id)}
+                              className="min-h-[38px] rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 text-xs font-bold"
+                            >
+                              Confirm Delete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteTopicId(null)}
+                              className="min-h-[38px] rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteTopicId(selectedDiscussion.id)}
+                            className="min-h-[38px] rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-2.5 py-2"
+                            title="Delete Topic"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )
                       )}
                     </div>
                   </div>
@@ -1291,36 +1340,76 @@ export const DiscussionsPage: React.FC<DiscussionsPageProps> = ({ onOpenAuthModa
                   </h4>
 
                   <div className="space-y-3">
-                    {activeThreadReplies.map((r) => (
-                      <div
-                        key={r.id}
-                        className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-xs"
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-bold text-slate-900 dark:text-slate-100">
-                            {r.authorName}{' '}
-                            <span className="text-[10px] font-normal text-slate-400 capitalize">
-                              ({formatRoleLabel(r.authorRole)})
+                    {activeThreadReplies.map((r) => {
+                      const canDeleteReply =
+                        userProfile?.userId === r.authorId ||
+                        activeRole === 'admin' ||
+                        activeRole === 'teacher';
+                      const confirmingReply = confirmDeleteReplyId === r.id;
+
+                      return (
+                        <div
+                          key={r.id}
+                          className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="font-bold text-slate-900 dark:text-slate-100">
+                              {r.authorName}{' '}
+                              <span className="text-[10px] font-normal text-slate-400 capitalize">
+                                ({formatRoleLabel(r.authorRole)})
+                              </span>
                             </span>
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {new Date(r.createdAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(r.createdAt).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                              {canDeleteReply && (
+                                confirmingReply ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteReply(r.id, r.discussionId)}
+                                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-600 text-white hover:bg-rose-700"
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteReplyId(null)}
+                                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteReplyId(r.id)}
+                                    className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                                    title="Delete reply"
+                                    aria-label="Delete reply"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-slate-700 dark:text-slate-200 leading-relaxed">
+                            <AIMarkdownMath content={r.content} />
+                          </div>
+                          {renderAttachment(
+                            r.attachmentUrl,
+                            r.attachmentName,
+                            r.attachmentSize,
+                            r.attachmentType
+                          )}
                         </div>
-                        <div className="text-slate-700 dark:text-slate-200 leading-relaxed">
-                          <AIMarkdownMath content={r.content} />
-                        </div>
-                        {renderAttachment(
-                          r.attachmentUrl,
-                          r.attachmentName,
-                          r.attachmentSize,
-                          r.attachmentType
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -61,13 +61,8 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
       try {
         iframe.contentWindow.focus();
         iframe.contentWindow.print();
-      } catch (err) {
-        // Fallback: open blobUrl in a new window to print
-        const printWindow = window.open(pdfData.blobUrl, '_blank');
-        if (printWindow) {
-          printWindow.focus();
-          printWindow.print();
-        }
+      } catch {
+        handleDownload();
       }
     }
   };

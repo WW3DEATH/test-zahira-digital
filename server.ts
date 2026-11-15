@@ -94,19 +94,134 @@ function resolveGeminiConfig(req: express.Request): {
   return { customKey, activeKey, client };
 }
 
-// Helper for timeout racing: guarantees responses return in <3.5 seconds
+// Helper for timeout racing: guarantees responses return cleanly within ms without unhandled rejections
 function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   let timer: any;
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), ms);
   });
-  return Promise.race([
-    promise.then((res) => {
+  const safePromise = promise.then(
+    (res) => {
       clearTimeout(timer);
       return res;
-    }),
-    timeout,
-  ]);
+    },
+    (err) => {
+      clearTimeout(timer);
+      throw err;
+    }
+  );
+  // Prevent late unhandled rejection warnings if timeout resolves first
+  safePromise.catch(() => {});
+  return Promise.race([safePromise, timeout]);
+}
+
+function isAuthOrKeyError(err: any): boolean {
+  const msg = String(err?.message || '').toLowerCase();
+  const status = Number(err?.status || err?.code || 0);
+  if (status === 503 || status === 429 || status === 500 || msg.includes('unavailable') || msg.includes('high demand')) {
+    return false;
+  }
+  return (
+    status === 401 ||
+    status === 403 ||
+    msg.includes('api_key_invalid') ||
+    msg.includes('api key not valid') ||
+    msg.includes('permission_denied') ||
+    (status === 400 && msg.includes('api key'))
+  );
+}
+
+function isTransientOverloadError(err: any): boolean {
+  const msg = String(err?.message || '').toLowerCase();
+  const status = Number(err?.status || err?.code || 0);
+  return (
+    status === 503 ||
+    status === 429 ||
+    status === 500 ||
+    msg.includes('unavailable') ||
+    msg.includes('high demand') ||
+    msg.includes('overloaded') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('rate limit')
+  );
+}
+
+async function callGeminiWithFallback(
+  client: GoogleGenAI,
+  params: {
+    contents: any;
+    config?: Record<string, any>;
+    thinkingLevel?: ThinkingLevel;
+    preferFast?: boolean;
+    singleAttempt?: boolean;
+  },
+  timeoutMs = 10000
+): Promise<{ text: string; model: string } | null> {
+  const models = params.singleAttempt
+    ? [params.preferFast === false ? 'gemini-4-hydrogen' : 'gemini-3.1-flash-lite']
+    : params.preferFast === false
+      ? ['gemini-4-hydrogen', 'gemini-3.1-flash-lite']
+      : ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'];
+  let lastError: any = null;
+
+  const tryClient = async (targetClient: GoogleGenAI, model: string, ms: number) => {
+    const { thinkingConfig: _ignored, ...baseConfig } = params.config || {};
+    const modelThinkingLevel =
+      model === 'gemini-3.1-flash-lite'
+        ? ThinkingLevel.MINIMAL
+        : params.thinkingLevel || ThinkingLevel.LOW;
+
+    const response = await raceTimeout(
+      targetClient.models.generateContent({
+        model,
+        contents: params.contents,
+        config: {
+          ...baseConfig,
+          thinkingConfig: {
+            thinkingLevel: modelThinkingLevel,
+          },
+        },
+      }),
+      ms
+    );
+    if (response && response.text) {
+      return { text: response.text, model };
+    }
+    return null;
+  };
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    try {
+      const res = await tryClient(client, model, i === 0 ? timeoutMs : Math.min(timeoutMs, 6500));
+      if (res) return res;
+    } catch (err: any) {
+      lastError = err;
+      if (isAuthOrKeyError(err)) {
+        throw err;
+      }
+      console.warn(`Gemini model "${model}" attempt failed:`, err?.message || err);
+      if (isTransientOverloadError(err)) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+  }
+
+  // If the caller used a custom key and hit transient 503/rate overload, retry once with server key if configured
+  const serverKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+  if (client !== ai && serverKey && (!lastError || isTransientOverloadError(lastError))) {
+    try {
+      const res = await tryClient(ai, 'gemini-3.1-flash-lite', Math.min(timeoutMs, 6500));
+      if (res) return res;
+    } catch (err: any) {
+      lastError = err;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+  return null;
 }
 
 // =========================================================================
@@ -325,64 +440,47 @@ Your rules:
       parts: [{ text: m.content }]
     }));
 
-    const customKey = ((req.headers['x-gemini-api-key'] as string) || req.body?.apiKey || '').trim();
-    const activeKey = customKey || process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+    const { customKey, activeKey, client } = resolveGeminiConfig(req);
+    const enableThinking = req.body?.enableThinking;
 
     if (activeKey) {
       try {
-        const client = customKey
-          ? new GoogleGenAI({
-              apiKey: customKey,
-              httpOptions: {
-                headers: {
-                  'User-Agent': 'aistudio-build',
-                },
-              },
-            })
-          : ai;
-
-        const response = await client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents,
-          config: {
-            systemInstruction,
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
+        const result = await callGeminiWithFallback(
+          client,
+          {
+            contents,
+            config: {
+              systemInstruction,
             },
+            preferFast: !enableThinking,
+            thinkingLevel: enableThinking ? ThinkingLevel.LOW : ThinkingLevel.LOW,
           },
-        });
+          enableThinking ? 9000 : 8000
+        );
 
-        if (response && response.text) {
-          return res.json({ reply: response.text });
+        if (result && result.text) {
+          return res.json({ reply: result.text, model: result.model });
         }
       } catch (geminiErr: any) {
         console.warn('Gemini Tutor API error:', geminiErr?.message || geminiErr);
-        if (customKey) {
+        if (customKey && isAuthOrKeyError(geminiErr)) {
           return res.json({
-            reply: `⚠️ **Custom Gemini API Key Error**: ${geminiErr?.message || 'Invalid API key or quota limit'}.\n\nPlease check your key in the **Insert API Key** menu or verify it at [Google AI Studio](https://aistudio.google.com/app/apikey).`,
+            reply: `⚠️ **Custom Gemini API Key Error**: Invalid or unauthorized API key.\n\nPlease verify your key in the **Insert API Key** menu or generate a valid key at [Google AI Studio](https://aistudio.google.com/app/apikey).`,
           });
         }
       }
     }
 
-    // Dynamic intelligent fallback when API key is awaiting configuration
+    // Dynamic intelligent fallback when API key is awaiting configuration or transient outage occurs
     const lastUserQuery = [...(messages || [])].reverse().find((m) => m.role === 'user')?.content || 'your query';
-    const dynamicReply = `### Gemini AI Academic Guidance: ${subject || 'Science'}
-
-You asked: "${lastUserQuery}"
-
-**Analysis & Core Concept:**
-In addressing **${lastUserQuery}** within **${subject || 'Science EM'}**:
-- Verify the foundational definitions and governing physical/mathematical laws applicable to this concept.
-- If this problem involves calculations, list known variables, verify SI units, and substitute into standard G.C.E. A/L formulations.
-
-*(Tip: You can insert your personal Gemini API key using the **Insert API Key** button at the top right of this chat or check AI Studio Settings > Secrets).*`;
+    const topicReply = generateInstantTutorAnswer(subject, topic, style, contents);
+    const dynamicReply = `${topicReply}\n\n---\n*Answered using built-in Science EM knowledge base for "${lastUserQuery}". Insert a valid Gemini API key in the top bar for unrestricted live Gemini generation.*`;
 
     res.json({ reply: dynamicReply });
   } catch (error: any) {
     console.error('Gemini Tutor Error:', error);
     res.json({
-      reply: 'Gemini AI encountered an unexpected error processing your question. Please try asking again.',
+      reply: 'Gemini AI encountered a temporary interruption processing your question. Please try again in a moment.',
     });
   }
 });
@@ -395,22 +493,10 @@ app.post('/api/ask-tutor', async (req, res) => {
       return res.status(400).json({ error: 'Question is required' });
     }
 
-    const customKey = ((req.headers['x-gemini-api-key'] as string) || req.body?.apiKey || '').trim();
-    const activeKey = customKey || process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+    const { customKey, activeKey, client } = resolveGeminiConfig(req);
 
     if (activeKey) {
       try {
-        const client = customKey
-          ? new GoogleGenAI({
-              apiKey: customKey,
-              httpOptions: {
-                headers: {
-                  'User-Agent': 'aistudio-build',
-                },
-              },
-            })
-          : ai;
-
         const prompt = `You are Gemini AI, the intelligent academic tutor for Zahira College 2k28 Science EM (English Medium).
 The student asked: "${question}"
 Subject: ${subject || 'Science'}
@@ -418,43 +504,32 @@ Academic Context: ${academicContext || 'G.C.E. Advanced Level Science'}
 
 Provide a direct, thorough, step-by-step academic explanation answering their exact question dynamically. Format cleanly with Markdown bullet points ("- ") and LaTeX: use "$ ... $" for inline variables/ratios (e.g. "$OD : DB = 1 : 2$") and "$$ ... $$" on its own line for centered display equations with stacked fractions (\\frac{a}{b}), bold vectors (\\mathbf{d}), and arrows (\\implies).`;
 
-        const response = await client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
+        const result = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
           },
-        });
+          8000
+        );
 
-        if (response && response.text) {
-          return res.json({ answer: response.text });
+        if (result && result.text) {
+          return res.json({ answer: result.text, model: result.model });
         }
       } catch (geminiErr: any) {
         console.warn('Ask Tutor Gemini API error:', geminiErr?.message || geminiErr);
-        if (customKey) {
+        if (customKey && isAuthOrKeyError(geminiErr)) {
           return res.json({
-            answer: `⚠️ **Custom Gemini API Key Error**: ${geminiErr?.message || 'Invalid key'}. Please verify your key or insert a valid one.`,
+            answer: `⚠️ **Custom Gemini API Key Error**: Invalid or unauthorized API key. Please verify your key or insert a valid one.`,
           });
         }
       }
     }
 
     // Dynamic response tailored to the user's actual question
-    const answer = `### Gemini AI Academic Explanation
-
-**Question:** ${question}
-
-**Subject:** ${subject || 'Science EM'}
-
-**Explanation:**
-To solve and understand **${question}**:
-1. Identify the fundamental principles governing this topic in G.C.E. A/L Science.
-2. Formulate the required equations using standard SI notation.
-3. For deep derivations or interactive problem-solving, open the dedicated **Gemini AI Studio** in the navigation bar!
-
-*(Tip: You can insert your personal Gemini API key in the AI chat or configure it in AI Studio Settings > Secrets).*`;
+    const answer = generateInstantTutorAnswer(subject || 'Science EM', question, 'step_by_step', [
+      { role: 'user', parts: [{ text: question }] },
+    ]);
 
     res.json({ answer });
   } catch (error: any) {
@@ -492,40 +567,40 @@ Create balanced, high quality questions. Each question must have:
 
     if (activeKey) {
       try {
-        const aiPromise = client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  questionText: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  options: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
+        const result = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    questionText: { type: Type.STRING },
+                    type: { type: Type.STRING },
+                    options: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                    correctAnswer: { type: Type.STRING },
+                    explanation: { type: Type.STRING },
+                    marks: { type: Type.NUMBER },
+                    difficulty: { type: Type.STRING },
                   },
-                  correctAnswer: { type: Type.STRING },
-                  explanation: { type: Type.STRING },
-                  marks: { type: Type.NUMBER },
-                  difficulty: { type: Type.STRING },
+                  required: ['id', 'questionText', 'type', 'options', 'correctAnswer', 'explanation', 'marks', 'difficulty'],
                 },
-                required: ['id', 'questionText', 'type', 'options', 'correctAnswer', 'explanation', 'marks', 'difficulty'],
               },
             },
           },
-        });
+          10000
+        );
 
-        const response = await raceTimeout(aiPromise, 4000);
-        if (response && response.text) {
-          questions = JSON.parse(response.text);
+        if (result && result.text) {
+          questions = JSON.parse(result.text);
         }
       } catch (e) {
         console.warn('Quiz API warning, using syllabus fallback:', e);
@@ -1381,100 +1456,101 @@ app.post('/api/gemini/pvp-quiz-generate', async (req, res) => {
 
     let questions: any[] = [];
     let source: 'gemini_ai' | 'procedural_engine' = 'procedural_engine';
+    let usedModel: string | null = null;
     let aiError: string | null = null;
     const { customKey, activeKey, client } = resolveGeminiConfig(req);
 
     if (activeKey) {
       const generateBatch = async (batchCount: number, batchNum: number) => {
         const batchPrompt = `Generate a brand-new, unique Player-vs-Player Quiz Competition batch for G.C.E. Advanced Level students at Zahira College Mawanella.
-Selected Student Subjects ONLY: ${subjectLabel} (STRICTLY include ONLY questions from these selected subjects: C.Maths = Combined Mathematics, Bio = Biology, Physics = Physics, Chemistry = Chemistry, ICT = Information & Communication Technology; distribute evenly across: ${subjectLabel}).
+Selected Student Subjects ONLY: ${subjectLabel} (STRICTLY include ONLY questions from: C.Maths, Bio, Physics, Chemistry, ICT; distribute evenly across: ${subjectLabel}).
 Specific Topic / Angle: ${topic || 'Diverse G.C.E. A/L syllabus concepts'}
 Analytical Lens: ${chosenLens}
 Difficulty: ${difficulty}
-Exact Question Count in This Batch: ${batchCount}
-Batch Identifier: ${batchNum} | Unique Match Nonce: ${nonce || `${Date.now()}-${roundSeed}`} (NEVER repeat clichéd textbook examples; invent fresh numbers and scenarios).
+Exact Question Count: ${batchCount}
+Batch Identifier: ${batchNum} | Unique Match Nonce: ${nonce || `${Date.now()}-${roundSeed}`}
 
-Requirements for EVERY question:
-- id: unique string
-- questionText: prefix cleanly with "[Subject] " (e.g. "[C.Maths] ", "[Physics] ", "[ICT] ", "[Bio] ", "[Chemistry] "). Use clean LaTeX "$ ... $" for math/chemical formulas.
-- type: MUST be 'multiple_choice'
-- options: array of EXACTLY 4 distinct choices (strings)
-- correctAnswer: MUST match one of the 4 strings in 'options' character-for-character
-- explanation: concise 1-2 sentence explanation
-- marks: integer point value (10 for easy, 12 for medium, 15 for hard)
+Rules for EVERY question:
+- id: short unique string
+- questionText: prefix with "[Subject] " (e.g. "[C.Maths] ", "[Physics] ", "[ICT] ", "[Bio] ", "[Chemistry] "). Concise question stem using "$ ... $" for math/formulas.
+- type: 'multiple_choice'
+- options: array of EXACTLY 4 short distinct choices
+- correctAnswer: exact string matching one option
+- explanation: 1 brief sentence (under 15 words)
+- marks: integer (${difficulty === 'hard' ? 15 : difficulty === 'medium' ? 12 : 10})
 - difficulty: '${difficulty}'`;
 
-        const callModel = async (modelName: string, timeoutMs: number) => {
-          const aiPromise = client.models.generateContent({
-            model: modelName,
-            contents: batchPrompt,
-            config: {
-              seed: roundSeed + batchNum,
-              thinkingConfig: {
-                thinkingLevel: ThinkingLevel.LOW,
-              },
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    questionText: { type: Type.STRING },
-                    type: { type: Type.STRING },
-                    options: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
+        const batchTimeout = 6500;
+        let responseText: string | null = null;
+
+        try {
+          const result = await callGeminiWithFallback(
+            client,
+            {
+              contents: batchPrompt,
+              preferFast: true,
+              singleAttempt: true,
+              config: {
+                seed: roundSeed + batchNum,
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      id: { type: Type.STRING },
+                      questionText: { type: Type.STRING },
+                      type: { type: Type.STRING },
+                      options: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                      },
+                      correctAnswer: { type: Type.STRING },
+                      explanation: { type: Type.STRING },
+                      marks: { type: Type.NUMBER },
+                      difficulty: { type: Type.STRING },
                     },
-                    correctAnswer: { type: Type.STRING },
-                    explanation: { type: Type.STRING },
-                    marks: { type: Type.NUMBER },
-                    difficulty: { type: Type.STRING },
+                    required: ['id', 'questionText', 'type', 'options', 'correctAnswer', 'explanation', 'marks', 'difficulty'],
                   },
-                  required: ['id', 'questionText', 'type', 'options', 'correctAnswer', 'explanation', 'marks', 'difficulty'],
                 },
               },
             },
-          });
-          return raceTimeout(aiPromise, timeoutMs);
-        };
+            batchTimeout
+          );
+          if (result?.text) {
+            responseText = result.text;
+            if (!usedModel) usedModel = result.model;
+          }
+        } catch (err: any) {
+          const msg = err?.message || 'Gemini API call failed';
+          if (isAuthOrKeyError(err)) {
+            aiError = 'Invalid or unauthorized custom Gemini API key.';
+          }
+          console.warn(`PvP Gemini batch ${batchNum} warning:`, msg);
+        }
 
-        const batchTimeout = customKey ? 15000 : 11000;
-        const response = await callModel('gemini-4-hydrogen', batchTimeout)
-          .catch(async (err: any) => {
-            const msg = String(err?.message || '');
-            if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
-              return callModel('gemini-3.8-flash', batchTimeout);
-            }
-            throw err;
-          })
-          .catch(async (err: any) => {
-            const msg = String(err?.message || '');
-            if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
-              return callModel('gemini-2.5-flash', batchTimeout);
-            }
-            aiError = msg || 'Gemini API call failed';
-            console.warn('PvP Gemini batch warning:', msg);
-            return null;
-          });
-
-        if (response && response.text) {
-          const parsed = JSON.parse(response.text);
+        if (responseText) {
+          const parsed = JSON.parse(responseText);
           if (Array.isArray(parsed)) {
             return parsed
               .filter((q: any) => q?.questionText && Array.isArray(q?.options) && q.options.length >= 2 && q.correctAnswer)
               .slice(0, batchCount)
               .map((q: any, idx: number) => {
-                const uniqueOpts = Array.from(new Set(q.options.map((o: any) => String(o).trim())));
-                if (!uniqueOpts.includes(String(q.correctAnswer).trim())) {
-                  uniqueOpts[0] = String(q.correctAnswer).trim();
+                const uniqueOpts = Array.from(new Set(q.options.map((o: any) => String(o).trim()).filter(Boolean)));
+                const cleanCorrect = String(q.correctAnswer).trim();
+                if (!uniqueOpts.includes(cleanCorrect)) {
+                  uniqueOpts[0] = cleanCorrect;
                 }
+                while (uniqueOpts.length < 4) {
+                  uniqueOpts.push(`Option ${uniqueOpts.length + 1}`);
+                }
+                const rawId = String(q.id || `gem_pvp_${Date.now()}_${batchNum}_${idx + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_');
                 return {
-                  id: q.id || `gem-pvp-${Date.now()}-${batchNum}-${idx + 1}`,
+                  id: `${rawId}_${batchNum}_${idx + 1}`,
                   questionText: String(q.questionText),
                   type: 'multiple_choice',
                   options: shuffleArray(uniqueOpts.slice(0, 4)),
-                  correctAnswer: String(q.correctAnswer).trim(),
+                  correctAnswer: cleanCorrect,
                   explanation: String(q.explanation || 'Verified by Gemini AI.'),
                   marks: Number(q.marks) || (difficulty === 'hard' ? 15 : difficulty === 'medium' ? 12 : 10),
                   difficulty: difficulty,
@@ -1486,29 +1562,33 @@ Requirements for EVERY question:
       };
 
       try {
-        if (targetCount > 25) {
-          const firstHalf = Math.ceil(targetCount / 2);
-          const secondHalf = targetCount - firstHalf;
-          const [b1, b2] = await Promise.all([
-            generateBatch(firstHalf, 1),
-            generateBatch(secondHalf, 2),
-          ]);
-          const seen = new Set<string>();
-          [...b1, ...b2].forEach((q) => {
-            if (!seen.has(q.questionText)) {
-              seen.add(q.questionText);
-              questions.push(q);
-            }
-          });
-        } else {
-          questions = await generateBatch(targetCount, 1);
+        const maxPerBatch = 10;
+        const batchSizes: number[] = [];
+        let remaining = targetCount;
+        while (remaining > 0) {
+          const size = Math.min(maxPerBatch, remaining);
+          batchSizes.push(size);
+          remaining -= size;
         }
+        const batchResults = await Promise.all(
+          batchSizes.map((size, idx) => generateBatch(size, idx + 1))
+        );
+        const seen = new Set<string>();
+        batchResults.flat().forEach((q) => {
+          if (!seen.has(q.questionText)) {
+            seen.add(q.questionText);
+            questions.push(q);
+          }
+        });
         if (questions.length > 0) {
           source = 'gemini_ai';
+          aiError = null;
         }
       } catch (err: any) {
-        aiError = err?.message || 'Gemini AI request error';
-        console.warn('PvP Gemini error:', aiError);
+        if (isAuthOrKeyError(err)) {
+          aiError = 'Invalid or unauthorized custom Gemini API key.';
+        }
+        console.warn('PvP Gemini error:', err?.message || err);
       }
     }
 
@@ -1538,6 +1618,7 @@ Requirements for EVERY question:
       questions: questions.slice(0, targetCount),
       subjects: normalizedSubjects,
       source,
+      model: usedModel || 'procedural_engine',
       generatedAt: new Date().toISOString(),
       usedCustomKey: Boolean(customKey),
       aiError,
@@ -1590,32 +1671,32 @@ Evaluate this student submission fairly. Provide:
 5. reasoning: brief justification for the teacher
 6. feedbackDraft: a constructive, polite paragraph feedback for the student that the teacher can edit and approve.`;
 
-        const aiPromise = client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
-                suggestedImprovements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                recommendedScore: { type: Type.NUMBER },
-                reasoning: { type: Type.STRING },
-                feedbackDraft: { type: Type.STRING },
+        const aiResult = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  suggestedImprovements: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  recommendedScore: { type: Type.NUMBER },
+                  reasoning: { type: Type.STRING },
+                  feedbackDraft: { type: Type.STRING },
+                },
+                required: ['strengths', 'weaknesses', 'suggestedImprovements', 'recommendedScore', 'reasoning', 'feedbackDraft'],
               },
-              required: ['strengths', 'weaknesses', 'suggestedImprovements', 'recommendedScore', 'reasoning', 'feedbackDraft'],
             },
           },
-        });
+          10000
+        );
 
-        const response = await raceTimeout(aiPromise, 4000);
-        if (response && response.text) {
-          result = JSON.parse(response.text);
+        if (aiResult && aiResult.text) {
+          result = JSON.parse(aiResult.text);
         }
       } catch (e) {
         console.warn('Grade assistant warning:', e);
@@ -1656,38 +1737,40 @@ app.post('/api/gemini/teacher-assistant', async (req, res) => {
     const { taskType, subject, gradeLevel, topic, additionalNotes } = req.body;
 
     const taskPrompts: Record<string, string> = {
-      lesson_plan: `Create a comprehensive, 45-minute lesson plan for ${gradeLevel} students in ${subject} on the topic "${topic}". Include Learning Objectives (Bloom's Taxonomy), Warm-Up (5 min), Direct Instruction (15 min), Guided Practice (15 min), Independent Activity, and Assessment/Exit Ticket.`,
-      revision_notes: `Generate clear, high-yield student revision study notes on "${topic}" for ${gradeLevel} ${subject}. Include Key Terms & Definitions, Core Principles, Common Misconceptions, and Quick Review Formulas/Facts.`,
-      question_bank: `Create a diverse question bank of 10 assessment questions (conceptual, analytical, and applied) for "${topic}" in ${gradeLevel} ${subject} with model answers and scoring breakdown.`,
-      announcement_draft: `Draft a professional, engaging school/class announcement regarding "${topic}" in ${gradeLevel} ${subject}. Include context, deadlines or action items, and teacher sign-off.`,
-      rubric_creator: `Generate a 4-tier grading rubric (Exemplary 4, Proficient 3, Developing 2, Beginning 1) for an assessment on "${topic}" in ${subject}. Columns: Criteria, Levels, Descriptions.`
+      lesson_plan: `Create a structured 45-minute lesson plan for ${gradeLevel} students in ${subject} on "${topic}". Include Learning Objectives, Warm-Up (5 min), Direct Instruction (15 min), Guided Practice (15 min), and Exit Ticket.`,
+      revision_notes: `Generate crisp, high-yield student revision notes on "${topic}" for ${gradeLevel} ${subject}. Include Key Definitions, Core Principles, Common Misconceptions, and Key Formulas.`,
+      question_bank: `Create a focused question bank of 6 assessment questions (conceptual and applied) for "${topic}" in ${gradeLevel} ${subject} with concise 1-line model answers and mark weights.`,
+      announcement_draft: `Draft a clear, engaging class announcement regarding "${topic}" in ${gradeLevel} ${subject} with key details, action items, and sign-off.`,
+      rubric_creator: `Generate a concise 4-tier grading rubric (Exemplary 4, Proficient 3, Developing 2, Beginning 1) for "${topic}" in ${subject}.`,
     };
 
     const taskInstruction = taskPrompts[taskType] || taskPrompts.lesson_plan;
 
     const prompt = `${taskInstruction}
-Additional Context/Preferences: ${additionalNotes || 'Standard academic standards'}.
-Provide output formatted in elegant Markdown.`;
+Additional Context/Preferences: ${additionalNotes || 'Standard academic standards'}.`;
 
     let content = '';
+    let usedModel = 'template';
     const { activeKey, client } = resolveGeminiConfig(req);
 
     if (activeKey) {
       try {
-        const aiPromise = client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            systemInstruction: 'You are an educational curriculum and pedagogical expert aiding certified classroom teachers.',
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
+        const aiResult = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
+            config: {
+              systemInstruction:
+                'You are an educational curriculum and pedagogical expert aiding certified classroom teachers. Keep your reply concise (~250-380 words) using crisp Markdown headings and tight bullet points that can be used immediately in class.',
             },
           },
-        });
+          9500
+        );
 
-        const response = await raceTimeout(aiPromise, 4000);
-        if (response && response.text) {
-          content = response.text;
+        if (aiResult && aiResult.text) {
+          content = aiResult.text;
+          usedModel = aiResult.model;
         }
       } catch (e) {
         console.warn('Teacher Assistant API warning:', e);
@@ -1713,7 +1796,7 @@ Provide output formatted in elegant Markdown.`;
 Ensure scholars commit core equations, SI units, and sign conventions to memory.`;
     }
 
-    res.json({ content });
+    res.json({ content, model: usedModel });
   } catch (error: any) {
     console.error('Teacher Assistant Error:', error);
     res.status(500).json({ error: error.message || 'Teacher assistant service failed' });
@@ -1731,37 +1814,33 @@ app.post('/api/gemini/insights', async (req, res) => {
     if (activeKey) {
       try {
         const prompt = `You are the Zahira College 2k28 Science EM Academic Analyst.
-Analyze the following verified school performance metrics for role: "${role}".
+Analyze these school performance metrics for role "${role}": ${JSON.stringify(academicData)}
+Provide a concise, insightful diagnostic matching the JSON schema.`;
 
-Verified Data:
-${JSON.stringify(academicData, null, 2)}
-
-Provide a concise, highly insightful diagnostic matching the schema.`;
-
-        const aiPromise = client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                overview: { type: Type.STRING },
-                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                growthAreas: { type: Type.ARRAY, items: { type: Type.STRING } },
-                actionPlan: { type: Type.ARRAY, items: { type: Type.STRING } },
+        const aiResult = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  overview: { type: Type.STRING },
+                  strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  growthAreas: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  actionPlan: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+                required: ['overview', 'strengths', 'growthAreas', 'actionPlan'],
               },
-              required: ['overview', 'strengths', 'growthAreas', 'actionPlan'],
             },
           },
-        });
+          7000
+        );
 
-        const response = await raceTimeout(aiPromise, 3500);
-        if (response && response.text) {
-          parsed = JSON.parse(response.text);
+        if (aiResult && aiResult.text) {
+          parsed = JSON.parse(aiResult.text);
         }
       } catch (e) {
         console.warn('Insights API warning:', e);
@@ -1809,30 +1888,30 @@ ${(posts || []).map((p: any) => `${p.authorName} (${p.authorRole}): ${p.content}
 
 Provide summary, keyConcepts, unansweredQuestions, and studyQuestions.`;
 
-        const aiPromise = client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                summary: { type: Type.STRING },
-                keyConcepts: { type: Type.ARRAY, items: { type: Type.STRING } },
-                unansweredQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                studyQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        const aiResult = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  summary: { type: Type.STRING },
+                  keyConcepts: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  unansweredQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  studyQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+                required: ['summary', 'keyConcepts', 'unansweredQuestions', 'studyQuestions'],
               },
-              required: ['summary', 'keyConcepts', 'unansweredQuestions', 'studyQuestions'],
             },
           },
-        });
+          9000
+        );
 
-        const response = await raceTimeout(aiPromise, 3500);
-        if (response && response.text) {
-          parsed = JSON.parse(response.text);
+        if (aiResult && aiResult.text) {
+          parsed = JSON.parse(aiResult.text);
         }
       } catch (e) {
         console.warn('Discussion summary warning:', e);
@@ -1914,29 +1993,32 @@ YOUR MISSION:
     }));
 
     let reply = '';
+    let usedModel = 'instant_knowledge';
     const { customKey, activeKey, client } = resolveGeminiConfig(req);
 
     if (activeKey) {
       try {
-        const response = await client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents,
-          config: {
-            systemInstruction,
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
+        const aiResult = await callGeminiWithFallback(
+          client,
+          {
+            contents,
+            preferFast: true,
+            config: {
+              systemInstruction,
             },
           },
-        });
+          7500
+        );
 
-        if (response && response.text) {
-          reply = response.text;
+        if (aiResult && aiResult.text) {
+          reply = aiResult.text;
+          usedModel = aiResult.model;
         }
       } catch (geminiErr: any) {
         console.warn('Gemini Student Assistant warning:', geminiErr?.message || geminiErr);
-        if (customKey) {
+        if (customKey && isAuthOrKeyError(geminiErr)) {
           return res.json({
-            reply: `⚠️ **Custom Gemini API Key Error**: ${geminiErr?.message || 'Invalid API key or quota limit'}.\n\nPlease verify or update your key using the **API Key** icon at the top of this chat.`,
+            reply: `⚠️ **Custom Gemini API Key Error**: Invalid or unauthorized API key.\n\nPlease verify or update your key using the **API Key** icon at the top of this chat.`,
           });
         }
       }
@@ -1948,11 +2030,13 @@ YOUR MISSION:
       if (qLower.includes('assignment') || qLower.includes('homework') || qLower.includes('timetable') || qLower.includes('schedule') || qLower.includes('badge')) {
         reply = generateInstantStudentAssistant(lastMsg, studentContext);
       } else {
-        reply = `You asked: **"${lastMsg}"**\n\nTo receive live Gemini AI answers for any custom question, please insert your Gemini API key using the **API Key** button at the top of this chat (or set \`GEMINI_API_KEY\` in server settings).`;
+        reply = generateInstantTutorAnswer('Science EM', lastMsg, 'step_by_step', [
+          { role: 'user', parts: [{ text: lastMsg }] },
+        ]);
       }
     }
 
-    res.json({ reply });
+    res.json({ reply, model: usedModel });
   } catch (error: any) {
     console.error('Student Assistant Error:', error);
     const lastMsg = req.body?.messages?.[req.body.messages.length - 1]?.content || '';
@@ -1987,64 +2071,64 @@ Stream: ${streamLabel}
 Weekly Study Capacity: ${hours} hours/day
 Weak Topics / Focus: ${weakTopics || preferredFocus || 'Exam-focused mastery'}`;
 
-        const aiPromise = client.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                weeklyGoal: { type: Type.STRING },
-                performanceDiagnosis: { type: Type.STRING },
-                targetExam: { type: Type.STRING },
-                overallReadinessScore: { type: Type.NUMBER },
-                scheduleBlocks: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      day: { type: Type.STRING },
-                      timeSlot: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                      subject: { type: Type.STRING },
-                      topic: { type: Type.STRING },
-                      urgency: { type: Type.STRING },
-                      objectives: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING },
+        const aiResult = await callGeminiWithFallback(
+          client,
+          {
+            contents: prompt,
+            preferFast: true,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  weeklyGoal: { type: Type.STRING },
+                  performanceDiagnosis: { type: Type.STRING },
+                  targetExam: { type: Type.STRING },
+                  overallReadinessScore: { type: Type.NUMBER },
+                  scheduleBlocks: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        id: { type: Type.STRING },
+                        day: { type: Type.STRING },
+                        timeSlot: { type: Type.STRING },
+                        durationMinutes: { type: Type.NUMBER },
+                        subject: { type: Type.STRING },
+                        topic: { type: Type.STRING },
+                        urgency: { type: Type.STRING },
+                        objectives: {
+                          type: Type.ARRAY,
+                          items: { type: Type.STRING },
+                        },
+                        completed: { type: Type.BOOLEAN },
                       },
-                      completed: { type: Type.BOOLEAN },
+                      required: ['id', 'day', 'timeSlot', 'durationMinutes', 'subject', 'topic', 'urgency', 'objectives', 'completed'],
                     },
-                    required: ['id', 'day', 'timeSlot', 'durationMinutes', 'subject', 'topic', 'urgency', 'objectives', 'completed'],
+                  },
+                  bioscienceKeyConcepts: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        concept: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        databaseRef: { type: Type.STRING },
+                        link: { type: Type.STRING },
+                      },
+                      required: ['concept', 'description', 'databaseRef', 'link'],
+                    },
                   },
                 },
-                bioscienceKeyConcepts: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      concept: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      databaseRef: { type: Type.STRING },
-                      link: { type: Type.STRING },
-                    },
-                    required: ['concept', 'description', 'databaseRef', 'link'],
-                  },
-                },
+                required: ['weeklyGoal', 'performanceDiagnosis', 'targetExam', 'overallReadinessScore', 'scheduleBlocks', 'bioscienceKeyConcepts'],
               },
-              required: ['weeklyGoal', 'performanceDiagnosis', 'targetExam', 'overallReadinessScore', 'scheduleBlocks', 'bioscienceKeyConcepts'],
             },
           },
-        });
+          10000
+        );
 
-        const response = await raceTimeout(aiPromise, 4000);
-        if (response && response.text) {
-          parsed = JSON.parse(response.text);
+        if (aiResult && aiResult.text) {
+          parsed = JSON.parse(aiResult.text);
         }
       } catch (e) {
         console.warn('Study planner API warning:', e);

@@ -344,17 +344,31 @@ export const AssignmentsPage: React.FC = () => {
     setAiGradingLoading(true);
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      let customKey = '';
+      try {
+        customKey = (localStorage.getItem('znc_custom_gemini_api_key') || '').trim();
+      } catch {}
+      if (customKey) {
+        headers['x-gemini-api-key'] = customKey;
+      }
+
       const response = await fetch('/api/gemini/grade-assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           assignmentTitle: gradingSubmission.assignment.title,
           instructions: gradingSubmission.assignment.instructions,
           rubric: gradingSubmission.assignment.rubric,
           studentSubmission: gradingSubmission.submission.content,
           maxMarks: gradingSubmission.assignment.maxMarks,
+          apiKey: customKey || undefined,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const data = await response.json();
       setAiSuggestions(data);

@@ -236,7 +236,33 @@ export const SEED_SETTING: SchoolSetting = {
   accentColor: '#dc2626',  // Crimson Red
 };
 
-// Purge all legacy dummy profiles and classes from Firestore
+export const FAKE_ATTENDANCE_ROSTER_IDS = new Set([
+  'roster_2860001',
+  'roster_2860002',
+  'roster_2860003',
+  'roster_2860004',
+  'roster_2860005',
+  'roster_2860006',
+]);
+
+export const FAKE_ATTENDANCE_ROSTER_NAMES = new Set([
+  'm. r. mohamed aadhil',
+  'fathima zahra',
+  'a. l. mohamed usman',
+  's. n. zainab farook',
+  'k. m. hamza rizwan',
+  't. m. akeel nazeer',
+]);
+
+export function isFakeSeedRosterStudent(docId?: string, fullName?: string): boolean {
+  const cleanId = (docId || '').trim();
+  const cleanName = (fullName || '').trim().toLowerCase();
+  if (FAKE_ATTENDANCE_ROSTER_IDS.has(cleanId)) return true;
+  if (cleanId.startsWith('roster_') && FAKE_ATTENDANCE_ROSTER_NAMES.has(cleanName)) return true;
+  return false;
+}
+
+// Purge all legacy dummy profiles, classes, and fake attendance roster entries from Firestore
 export async function purgeDummyProfilesAndClasses() {
   const dummyUserIds = [
     'student_aadhil',
@@ -260,6 +286,25 @@ export async function purgeDummyProfilesAndClasses() {
     } catch (e) {
       // ignore
     }
+  }
+
+  // Purge seeded fake students from attendanceRoster
+  for (const fakeRosterId of FAKE_ATTENDANCE_ROSTER_IDS) {
+    try {
+      await deleteDoc(doc(db, 'attendanceRoster', fakeRosterId));
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    const rosterSnap = await getDocs(collection(db, 'attendanceRoster'));
+    await Promise.all(
+      rosterSnap.docs
+        .filter((d) => isFakeSeedRosterStudent(d.id, d.data()?.fullName))
+        .map((d) => deleteDoc(doc(db, 'attendanceRoster', d.id)))
+    );
+  } catch {
+    // ignore if unavailable
   }
 }
 

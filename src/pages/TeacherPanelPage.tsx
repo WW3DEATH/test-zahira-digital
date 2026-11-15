@@ -218,23 +218,26 @@ export const TeacherPanelPage: React.FC<TeacherPanelPageProps> = ({ onNavigate }
       setTimeout(() => setNoticeSuccessMessage(null), 4000);
     } catch (err: any) {
       console.error('Error posting notice:', err);
-      alert('Failed to post notice: ' + err.message);
+      setNoticeSuccessMessage(`Failed to post notice: ${err.message}`);
+      setTimeout(() => setNoticeSuccessMessage(null), 4000);
     } finally {
       setPostingNotice(false);
     }
   };
 
-  const handleDeleteNotice = async (noticeId: string, title: string) => {
-    if (!window.confirm(`Are you sure you want to remove the notice "${title}"?`)) {
-      return;
-    }
+  const [confirmDeleteNoticeId, setConfirmDeleteNoticeId] = useState<string | null>(null);
+
+  const handleDeleteNotice = async (noticeId: string) => {
     try {
+      setNotices((prev) => prev.filter((n) => n.id !== noticeId));
+      setConfirmDeleteNoticeId(null);
       await deleteDoc(doc(db, 'announcements', noticeId));
-      setNoticeSuccessMessage(`Notice deleted.`);
+      setNoticeSuccessMessage('Notice deleted from interface and Firebase.');
       setTimeout(() => setNoticeSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Error deleting notice:', err);
-      alert('Failed to delete notice: ' + err.message);
+      setNoticeSuccessMessage(`Failed to delete notice: ${err.message}`);
+      setTimeout(() => setNoticeSuccessMessage(null), 4000);
     }
   };
 
@@ -768,13 +771,33 @@ export const TeacherPanelPage: React.FC<TeacherPanelPageProps> = ({ onNavigate }
                       </span>
                     </div>
 
-                    <button
-                      onClick={() => handleDeleteNotice(nt.id, nt.title)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                      title="Delete Notice"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {confirmDeleteNoticeId === nt.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNotice(nt.id)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-bold hover:bg-rose-700"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteNoticeId(null)}
+                          className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteNoticeId(nt.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                        title="Delete Notice"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   <h4 className="font-bold text-sm text-slate-900 dark:text-white">{nt.title}</h4>

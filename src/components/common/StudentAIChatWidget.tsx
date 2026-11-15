@@ -86,7 +86,7 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
     {
       id: 'welcome',
       role: 'assistant',
-      content: `Assalamu Alaikum & Welcome! I am **244 AI**, your personal academic assistant for **Zahira College Mawanella (2k28 Science EM)**.\n\nI am equipped with **Math.js** for exact scientific calculations and **Gemini 3.8 Flash** for academic explanations.\n\nYou can ask me:\n• *"What assignments are due this week?"*\n• *"What is our class schedule today or tomorrow?"*\n• *"What digital badges can I earn for streaks, high quiz scores, and attendance?"*\n• *"Evaluate 4.5 * 10^3 * 9.8 * sin(30 deg)"*\n• *"Calculate the derivative of x^3 + 4x^2"*`,
+      content: `Assalamu Alaikum & Welcome! I am **244 AI**, your personal academic assistant for **Zahira College Mawanella (2k28 Science EM)**.\n\nI am equipped with **Math.js** for exact scientific calculations and **Google Gemini AI** for fast academic explanations.\n\nYou can ask me:\n• *"What assignments are due this week?"*\n• *"What is our class schedule today or tomorrow?"*\n• *"What digital badges can I earn for streaks, high quiz scores, and attendance?"*\n• *"Evaluate 4.5 * 10^3 * 9.8 * sin(30 deg)"*\n• *"Calculate the derivative of x^3 + 4x^2"*`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -306,6 +306,10 @@ export const StudentAIChatWidget: React.FC<StudentAIChatWidgetProps> = ({ onNavi
           },
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const data = await response.json();
       const replyText = data.reply || data.error || 'Sorry, I could not process your query at this moment.';

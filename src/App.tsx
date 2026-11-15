@@ -29,6 +29,7 @@ import { ScienceLabsPage } from './pages/ScienceLabsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { PvPQuizArenaPage } from './pages/PvPQuizArenaPage';
+import { AboutUsPage } from './pages/AboutUsPage';
 import { AuthModal } from './components/common/AuthModal';
 import { StudentAIChatWidget } from './components/common/StudentAIChatWidget';
 import {
@@ -86,16 +87,24 @@ const MainApp: React.FC = () => {
   };
 
   const renderCurrentPage = () => {
+    if (currentPage === 'admin_panel' || currentPage.startsWith('admin_panel:')) {
+      const subTab = currentPage.includes(':')
+        ? (currentPage.split(':')[1] as any)
+        : 'branding';
+      return activeRole === 'admin' ? (
+        <AdminMasterControlPage
+          key={subTab}
+          initialTab={subTab}
+          onNavigate={setCurrentPage}
+        />
+      ) : (
+        renderRoleDashboard()
+      );
+    }
+
     switch (currentPage) {
       case 'dashboard':
         return renderRoleDashboard();
-
-      case 'admin_panel':
-        return activeRole === 'admin' ? (
-          <AdminMasterControlPage onNavigate={setCurrentPage} />
-        ) : (
-          renderRoleDashboard()
-        );
 
       case 'teacher_panel':
         return userProfile && (activeRole === 'teacher' || activeRole === 'admin') ? (
@@ -160,6 +169,8 @@ const MainApp: React.FC = () => {
         );
       case 'profile':
         return <ProfilePage />;
+      case 'about':
+        return <AboutUsPage onNavigate={setCurrentPage} />;
       case 'settings':
         return userProfile && activeRole === 'admin' ? (
           <SettingsPage />
@@ -220,8 +231,31 @@ const MainApp: React.FC = () => {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-6 lg:px-8 py-4 sm:py-6 w-full min-w-0">
-          <div className="mx-auto max-w-7xl pb-24 md:pb-12 w-full min-w-0">
+          <div className="mx-auto max-w-7xl pb-24 md:pb-10 w-full min-w-0 space-y-10">
             {renderCurrentPage()}
+
+            <footer className="border-t border-slate-200/80 dark:border-slate-800 pt-5 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <p>
+                &copy; {new Date().getFullYear()} M. N. M. Jaasim · Zahira College Mawanella AL EM Science Project
+              </p>
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('about')}
+                  className="font-semibold text-blue-900 dark:text-blue-400 hover:underline underline-offset-4"
+                >
+                  About Us &amp; Copyrights
+                </button>
+                <a
+                  href="https://www.linkedin.com/in/m-n-m-jaasim-9ab879380/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 hover:underline underline-offset-4"
+                >
+                  Developer LinkedIn
+                </a>
+              </div>
+            </footer>
           </div>
         </main>
       </div>
